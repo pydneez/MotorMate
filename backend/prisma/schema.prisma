@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  ADVISOR
+  MECHANIC
+  CUSTOMER
+}
+
+enum WorkOrderStatus {
+  CHECKED_IN
+  IN_DIAGNOSIS
+  IN_REPAIR
+  COMPLETED
+}
+
+model User {
+  id           String      @id @default(cuid())
+  email        String      @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         Role
+  workOrders   WorkOrder[] @relation("AssignedMechanic")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+}
+
+model Customer {
+  id        String    @id @default(cuid())
+  firstName String
+  lastName  String
+  email     String    @unique
+  phone     String
+  vehicles  Vehicle[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Vehicle {
+  id         String      @id @default(cuid())
+  customer   Customer    @relation(fields: [customerId], references: [id])
+  customerId String
+  vin        String      @unique
+  plate      String
+  make       String
+  model      String
+  year       Int
+  mileage    Int
+  workOrders WorkOrder[]
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+}
+
+model WorkOrder {
+  id           String          @id @default(cuid())
+  vehicle      Vehicle         @relation(fields: [vehicleId], references: [id])
+  vehicleId    String
+  mechanic     User?           @relation("AssignedMechanic", fields: [mechanicId], references: [id])
+  mechanicId   String?
+  status       WorkOrderStatus @default(CHECKED_IN)
+  complaint    String
+  notes        String?
+  serviceItems ServiceItem[]
+  partsUsed    PartUsed[]
+  invoice      Invoice?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model ServiceItem {
+  id          String    @id @default(cuid())
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
+  workOrderId String
+  description String
+  laborCost   Decimal   @db.Decimal(10, 2)
+}
+
+model PartUsed {
+  id          String    @id @default(cuid())
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
+  workOrderId String
+  name        String
+  quantity    Int
+  unitCost    Decimal   @db.Decimal(10, 2)
+}
+
+model Invoice {
+  id          String    @id @default(cuid())
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
+  workOrderId String    @unique
+  subtotal    Decimal   @db.Decimal(10, 2)
+  total       Decimal   @db.Decimal(10, 2)
+  generatedAt DateTime  @default(now())
+}
