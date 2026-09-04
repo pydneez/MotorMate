@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: motormate-postgres
+    restart: unless-stopped
+    ports:
+      # Host port 5433 -> container 5432. Host 5432 is reserved on this machine by a
+      # native PostgreSQL install; the container always listens on 5432 internally.
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - motormate_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Optional GUI for browsing the database — comment out if you prefer
+  # `npm run db:studio` instead.
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: motormate-pgadmin
+    restart: unless-stopped
+    ports:
+      - "5050:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - motormate_pgadmin_data:/var/lib/pgadmin
+
+volumes:
+  motormate_pg_data:
+  motormate_pgadmin_data:
