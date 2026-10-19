@@ -177,6 +177,19 @@ schema before calling the API. List search and paging live in the URL.
 - **Mileage never decreases** except by an admin correction (audited).
 - **Duplicates:** VIN is a hard unique constraint. Same phone (customer) or same
   plate+province (vehicle) only raises a "possible duplicate" warning.
+- **Merging duplicate customers** (`POST /customers/:id/merge`, admin/advisor): the usual
+  case is a walk-in record (phone only) plus a later self-registration with the same phone.
+  - Only records with the **same phone**; at most **one** may have a portal login, and
+    that one is always kept (so the sign-in keeps working).
+  - Vehicles (with their whole history) and appointments move to the kept record; kept
+    values win, blank email/LINE ID are filled, notes are combined; the emptied record is
+    **deleted** (the one exception to "no deleting customers") and a `customer.merged`
+    audit entry records what moved. All in one transaction.
+  - **Known limitation:** two records that both have logins can't be merged (they may be
+    family members sharing a phone), and there's no screen to deactivate a customer's
+    login — fixing a customer who signed up twice needs a manual DB fix.
+  - The customer dashboard's "ask the advisor to link your history" hint is deliberately
+    generic: it never reveals whether a record with that phone exists.
 - **Thailand only for now**, stored so other countries can be added later:
   - Phones are stored as E.164 (`+66812345678`), displayed as `081-234-5678`; use
     `normalizeThaiPhone` / `formatThaiPhone` from `packages/types`.
