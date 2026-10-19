@@ -244,6 +244,35 @@ describe("role and ownership rules over HTTP", () => {
   });
 });
 
+describe("clearing optional fields (what the edit forms send)", () => {
+  it("clears LINE ID, email and notes on a walk-in customer when the form sends null", async () => {
+    const created = await api(tokens.advisor)
+      .post("/customers", { firstName: "Walk", lastName: "In", phone: "0899999999", email: "walk@test.example", lineId: "walkin", notes: "x" })
+      .expect(201);
+
+    const res = await api(tokens.advisor)
+      .patch(`/customers/${created.body.id}`, {
+        firstName: "Walk",
+        lastName: "In",
+        phone: "+66899999999",
+        email: null,
+        lineId: null,
+        notes: null,
+      })
+      .expect(200);
+
+    expect(res.body).toEqual(expect.objectContaining({ email: null, lineId: null, notes: null }));
+  });
+
+  it("clears a vehicle's color and a customer's own LINE ID", async () => {
+    const vehicle = await api(tokens.advisor).patch(`/vehicles/${ids.civic}`, { color: null }).expect(200);
+    expect(vehicle.body.color).toBeNull();
+
+    const me = await api(tokens.jordan).patch("/customers/me", { phone: "+66812345678", lineId: null }).expect(200);
+    expect(me.body.lineId).toBeNull();
+  });
+});
+
 describe("staff management over HTTP", () => {
   it("cuts off a deactivated user's existing token immediately", async () => {
     const created = await api(tokens.admin)

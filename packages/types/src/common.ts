@@ -38,6 +38,29 @@ export function wholeNumber(label: string, constrain: (n: z.ZodNumber) => z.ZodN
   );
 }
 
+/**
+ * An optional text field on an EDIT form: an emptied field means "clear it" (null).
+ *
+ * Accepts null as well as text because forms validate in the browser and then send the
+ * parsed result, so the API sees null for a cleared field. Every schema must accept its own
+ * output — the round-trip test in backend/src/common/pipes/validation.spec.ts enforces this.
+ */
+export function clearableText(maxLength?: number) {
+  const text = maxLength ? z.string().trim().max(maxLength) : z.string().trim();
+  return text
+    .nullable()
+    .transform((value) => value || null)
+    .optional();
+}
+
+/** Like clearableText, for an email: "" or null clears it, anything else must be valid. */
+export function clearableEmail() {
+  return z
+    .union([z.literal(""), z.null(), z.string().trim().toLowerCase().email("Enter a valid email")])
+    .transform((value) => value || null)
+    .optional();
+}
+
 /** Optional query-string boolean: "true"/"false" → boolean, missing → undefined. */
 export const QueryBooleanSchema = z
   .enum(["true", "false"])

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { wholeNumber } from "./common";
+import { clearableText, wholeNumber } from "./common";
 import { ThaiPlateSchema, ThaiProvinceSchema } from "./thai";
 import type { WorkOrderStatus } from "./work-order";
 
@@ -89,10 +89,7 @@ export type CreateVehicleInput = z.input<typeof CreateVehicleSchema>;
 export const UpdateVehicleSchema = CreateVehicleSchema.omit({ mileage: true, customerId: true })
   .extend({
     /** An emptied field clears the color. */
-    color: z
-      .string()
-      .trim()
-      .transform((value) => value || null),
+    color: clearableText(),
   })
   .partial()
   .strict();

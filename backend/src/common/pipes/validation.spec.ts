@@ -7,7 +7,11 @@ import {
   CreateVehicleSchema,
   ListQuerySchema,
   MileageCorrectionSchema,
+  RegisterSchema,
+  ResetPasswordSchema,
+  UpdateCustomerSchema,
   UpdateOwnCustomerSchema,
+  UpdateStaffSchema,
   UpdateVehicleSchema,
 } from "@motormate/types";
 import { searchTokens } from "../utils/pagination";
@@ -222,5 +226,49 @@ describe("searchTokens", () => {
 
   it("returns no tokens for an empty search", () => {
     expect(searchTokens(undefined)).toEqual([]);
+  });
+});
+
+/**
+ * Forms validate in the browser and then send the PARSED result, which the API parses again
+ * with the same schema. So every form schema must accept its own output and produce the same
+ * value. (A cleared LINE ID used to become null in the browser and then fail on the server.)
+ */
+describe("form schemas accept their own output (browser → API round trip)", () => {
+  const empty = { lineId: "", email: "", notes: "", color: "" };
+  const cases: [string, ZodTypeAny, Record<string, unknown>][] = [
+    ["RegisterSchema", RegisterSchema, { firstName: "A", lastName: "B", email: "A@B.com", phone: "081 234 5678", lineId: "", password: "password123" }],
+    ["CreateCustomerSchema", CreateCustomerSchema, { firstName: "A", lastName: "B", phone: "0812345678", ...empty }],
+    ["UpdateCustomerSchema (fields cleared)", UpdateCustomerSchema, { firstName: "A", lastName: "B", phone: "02-123-4567", email: "", lineId: "", notes: "" }],
+    ["UpdateCustomerSchema (fields set)", UpdateCustomerSchema, { email: "X@Y.com", lineId: " jordan ", notes: "VIP" }],
+    ["UpdateOwnCustomerSchema (cleared)", UpdateOwnCustomerSchema, { phone: "081-234-5678", lineId: "" }],
+    ["CreateVehicleSchema", CreateVehicleSchema, { ...validVehicle, color: "", customerId: "cust-1" }],
+    ["UpdateVehicleSchema (color cleared)", UpdateVehicleSchema, { plate: "1กข-1234", province: "กรุงเทพมหานคร", vin: "mrhfc1650kp000001", make: "Honda", model: "Civic", year: "2019", color: "" }],
+    ["MileageCorrectionSchema", MileageCorrectionSchema, { mileage: "41200", reason: " Typo " }],
+    ["CreateStaffSchema", CreateStaffSchema, { firstName: "A", lastName: "B", email: "N@X.com", role: "MECHANIC", temporaryPassword: "temp-pass-1" }],
+    ["UpdateStaffSchema", UpdateStaffSchema, { firstName: "A", lastName: "B", role: "ADVISOR" }],
+    ["ResetPasswordSchema", ResetPasswordSchema, { temporaryPassword: "temp-pass-1" }],
+    ["ChangePasswordSchema", ChangePasswordSchema, { currentPassword: "password123", newPassword: "new-password-1" }],
+  ];
+
+  it.each(cases)("%s", (_name, schema, formInput) => {
+    const inBrowser = validate(schema, formInput);
+    // JSON drops undefined, exactly like the real request body.
+    const sent = JSON.parse(JSON.stringify(inBrowser));
+    expect(validate(schema, sent)).toEqual(sent);
+  });
+
+  it("treats null as 'clear' on edit forms", () => {
+    expect(validate(UpdateCustomerSchema, { lineId: null, email: null, notes: null })).toEqual({
+      lineId: null,
+      email: null,
+      notes: null,
+    });
+    expect(validate(UpdateVehicleSchema, { color: null })).toEqual({ color: null });
+    expect(validate(UpdateOwnCustomerSchema, { lineId: null })).toEqual({ lineId: null });
+  });
+
+  it("still rejects a LINE ID that is too long", () => {
+    expect(fieldErrors(UpdateOwnCustomerSchema, { lineId: "x".repeat(51) }).lineId).toBeDefined();
   });
 });
