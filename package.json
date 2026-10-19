@@ -12,7 +12,8 @@
     "lint": "pnpm -r lint",
     "test": "pnpm build:types && pnpm -r test",
     "typecheck": "pnpm build:types && pnpm -r typecheck",
-    "postinstall": "pnpm build:types"
+    "postinstall": "pnpm build:types",
+    "test:integration": "pnpm build:types && pnpm --filter backend test:integration"
   },
   "engines": {
     "node": ">=20.0.0",
