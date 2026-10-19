@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from "@nestjs/common";
 import {
   CreateCustomerSchema,
   CustomerDuplicateQuerySchema,
   ListQuerySchema,
+  MergeCustomerSchema,
   UpdateCustomerSchema,
   UpdateOwnCustomerSchema,
   type AuthUser,
@@ -11,6 +12,7 @@ import {
   type CustomerDuplicates,
   type CustomerSummary,
   type ListQuery,
+  type MergeCustomerInput,
   type Paginated,
 } from "@motormate/types";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
@@ -81,5 +83,17 @@ export class CustomersController {
     @Body(new ZodValidationPipe(UpdateCustomerSchema)) body: UpdateCustomerData,
   ): Promise<CustomerSummary> {
     return this.customers.update(actor, id, body);
+  }
+
+  /** Merge another customer (same phone) into this one, then remove it. */
+  @Post(":id/merge")
+  @Roles("ADMIN", "ADVISOR")
+  @HttpCode(HttpStatus.OK)
+  merge(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(MergeCustomerSchema)) body: MergeCustomerInput,
+  ): Promise<CustomerDetail> {
+    return this.customers.merge(actor, id, body.sourceId);
   }
 }
