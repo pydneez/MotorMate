@@ -97,7 +97,7 @@ export default function RegisterPage() {
           history will be linked automatically.
         </p>
         {error && <Alert>{error}</Alert>}
-        <Button type="submit" loading={loading}>
+        <Button type="submit" loading={loading} className="w-full">
           Create account
         </Button>
       </form>
