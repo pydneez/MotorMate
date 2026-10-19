@@ -86,7 +86,19 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
 | `npm run db:migrate` | Apply schema changes after pulling new migrations |
 | `npm run db:seed` | Populate sample data (safe to re-run, upserts) |
 | `pnpm lint` | Lint both apps |
-| `pnpm test` | Run tests in both apps |
+| `npm run test` | Run unit tests in every package |
+| `npm run test:integration` | Run backend tests against a real Postgres (`motormate_test` database — create it once, see below) |
+
+### Integration test database
+
+Integration tests use their own database so they never touch your dev data. Create it once
+(use the `POSTGRES_USER` from your root `.env`):
+
+```bash
+docker exec motormate-postgres psql -U <POSTGRES_USER> -d motormate -c "CREATE DATABASE motormate_test"
+```
+
+The tests apply migrations to it automatically and wipe it before and after each run.
 
 ## Working with teammates
 

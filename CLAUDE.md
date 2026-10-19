@@ -105,19 +105,41 @@ backend/src/
     health.controller.ts
     health.service.ts
     health.module.ts
-  customers/            (once built)
+  auth/                 login, register, me, change password; JWT strategy
+  users/                staff management (ADMIN only)
+  customers/
     customers.controller.ts
     customers.service.ts
     customers.module.ts
-    dto/
-  common/                (once needed — guards, filters, interceptors shared across modules)
+  vehicles/             also vehicle.mapper.ts (VehicleSummary / service history shapes)
+  common/
+    decorators/          @Public, @Roles, @CurrentUser
+    guards/              JwtAuthGuard, RolesGuard (both global)
+    pipes/               ZodValidationPipe
+    utils/               writeAudit/diffFields, pagination + searchTokens, phoneSearchFragment
   app.module.ts           composition root — imports each feature module
   main.ts
 ```
 
 Add new features (Customer, Vehicle, WorkOrder, ...) as their own folder under `src/`,
 each with its own module imported into `AppModule`, rather than piling files into shared
-`controllers/`/`services/` folders.
+`controllers/`/`services/` folders. Request bodies are validated with the shared zod
+schemas (no `dto/` classes — see Conventions).
+
+Patterns the existing modules follow (copy them for new ones):
+
+- **List endpoints** take `?q=&page=&pageSize=` (`ListQuerySchema`) and return
+  `Paginated<T>`; multi-word searches AND their words (`searchTokens`).
+- **Every write** that matters runs in `prisma.$transaction` together with `writeAudit(...)`.
+- **Customers are scoped in the service**, not just the guard: a customer requesting
+  someone else's record gets **404**, never 403, so existence isn't revealed.
+- Number fields from forms use `wholeNumber(label)` from `packages/types` (blank = required,
+  never silently 0).
+
+Frontend pages follow the same split: server components fetch with `serverGet()`
+(`frontend/lib/server.ts`, token from the session, 404 → not-found page); client forms use
+`useApi()` + `useFormSubmit()` (`frontend/lib/client.ts`) and validate with the same zod
+schema before calling the API. List search and paging live in the URL.
 
 ## Core data entities (Prisma — `backend/prisma/schema.prisma`)
 
@@ -232,8 +254,18 @@ npm run db:migrate             # apply schema to local DB — alias for `pnpm --
 npm run db:seed                # populate sample data — alias for `pnpm --filter backend exec prisma db seed`
 npm run dev:backend            # build packages/types, then run backend (NestJS) on :8080
 npm run dev:frontend           # build packages/types, then run frontend (Next.js) on :3000
-npm run test                   # build packages/types, then Jest in every package
+npm run test                   # build packages/types, then Jest unit tests in every package
+npm run test:integration       # backend HTTP + real-Postgres tests (see below)
 ```
+
+- **Integration tests** (`backend/test/*.int-spec.ts`) boot the whole Nest app and hit a
+  **separate `motormate_test` database** (derived from `DATABASE_URL`, or set
+  `TEST_DATABASE_URL`); the setup refuses any database not ending in `_test`, applies
+  migrations, and truncates its tables. Create it once with
+  `docker exec motormate-postgres psql -U <user> -d motormate -c "CREATE DATABASE motormate_test"`.
+- Unit tests use the Prisma mock in `backend/test/prisma-mock.ts`.
+- Don't run `next build` while a frontend dev server is running — it overwrites `.next`
+  and the dev server starts serving pages without CSS/JS until restarted.
 
 Seeded logins (password `password123`): `admin@`, `advisor@`, `mechanic@motormate.example`,
 customer `jordan.lee@example.com`.
