@@ -3,14 +3,16 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev:backend": "pnpm --filter backend dev",
-    "dev:frontend": "pnpm --filter frontend dev",
+    "build:types": "pnpm --filter @motormate/types build",
+    "dev:backend": "pnpm build:types && pnpm --filter backend dev",
+    "dev:frontend": "pnpm build:types && pnpm --filter frontend dev",
     "db:migrate": "pnpm --filter backend exec prisma migrate dev",
     "db:studio": "pnpm --filter backend exec prisma studio",
-    "db:seed": "pnpm --filter backend exec prisma db seed",
+    "db:seed": "pnpm build:types && pnpm --filter backend exec prisma db seed",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "test": "pnpm build:types && pnpm -r test",
+    "typecheck": "pnpm build:types && pnpm -r typecheck",
+    "postinstall": "pnpm build:types"
   },
   "engines": {
     "node": ">=20.0.0",

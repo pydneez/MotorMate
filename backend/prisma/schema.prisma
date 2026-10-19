@@ -6,6 +6,8 @@ datasource db {
   provider = "postgresql"
 }
 
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
 enum Role {
   ADMIN
   ADVISOR
@@ -15,87 +17,353 @@ enum Role {
 
 enum WorkOrderStatus {
   CHECKED_IN
-  IN_DIAGNOSIS
-  IN_REPAIR
+  DIAGNOSING
+  AWAITING_PARTS
+  IN_PROGRESS
+  QUALITY_CHECK
   COMPLETED
+  CANCELLED
 }
 
+enum StockMovementReason {
+  PURCHASE // stock received from a supplier
+  WORK_ORDER // part logged on a work order (negative) or returned from one (positive)
+  ADJUSTMENT // manual correction (stocktake, damage, ...)
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PAID
+  VOID
+}
+
+enum RecommendationStatus {
+  OPEN // waiting for its due mileage/date
+  REMINDED // reminder email sent, customer hasn't come back yet
+  DONE // performed on a later work order
+  DISMISSED
+}
+
+enum AppointmentStatus {
+  REQUESTED
+  CONFIRMED
+  CHECKED_IN // a WorkOrder was created from it
+  COMPLETED // its WorkOrder completed
+  CANCELLED
+  NO_SHOW
+}
+
+enum NotificationType {
+  SERVICE_REMINDER
+  APPOINTMENT_CONFIRMED
+  APPOINTMENT_REMINDER
+  INVOICE_ISSUED
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// ─── Accounts ────────────────────────────────────────────────────────────────
+
 model User {
-  id           String      @id @default(cuid())
-  email        String      @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
   firstName    String
   lastName     String
   role         Role
-  workOrders   WorkOrder[] @relation("AssignedMechanic")
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+
+  /// Set only for CUSTOMER users who have portal access.
+  customer Customer?
+
+  assignedWorkOrders WorkOrder[]             @relation("AssignedMechanic")
+  createdWorkOrders  WorkOrder[]             @relation("WorkOrderCreatedBy")
+  statusChanges      WorkOrderStatusChange[]
+  stockMovements     StockMovement[]
+  auditLogs          AuditLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
+// ─── Customers & vehicles ────────────────────────────────────────────────────
+
 model Customer {
-  id        String    @id @default(cuid())
+  id        String  @id @default(cuid())
   firstName String
   lastName  String
-  email     String    @unique
+  /// E.164, e.g. +66812345678 — see normalizeThaiPhone in packages/types.
   phone     String
-  vehicles  Vehicle[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  /// Optional: walk-in customers may not give one, but reminders need it.
+  email     String? @unique
+  lineId    String?
+  notes     String?
+
+  user   User?   @relation(fields: [userId], references: [id])
+  userId String? @unique
+
+  vehicles     Vehicle[]
+  appointments Appointment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+  @@index([lastName, firstName])
 }
 
 model Vehicle {
-  id         String      @id @default(cuid())
-  customer   Customer    @relation(fields: [customerId], references: [id])
+  id         String   @id @default(cuid())
+  customer   Customer @relation(fields: [customerId], references: [id])
   customerId String
-  vin        String      @unique
-  plate      String
-  make       String
-  model      String
-  year       Int
-  mileage    Int
-  workOrders WorkOrder[]
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+
+  vin             String  @unique
+  /// As typed for display, e.g. "1กข 1234".
+  plate           String
+  /// Plate with spaces/dashes stripped — what search matches on.
+  plateNormalized String
+  /// Thai province name; a plate is only unique together with its province.
+  province        String
+  make            String
+  model           String
+  year            Int
+  color           String?
+  mileage         Int
+
+  workOrders      WorkOrder[]
+  recommendations ServiceRecommendation[]
+  appointments    Appointment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([plateNormalized, province])
+  @@index([customerId])
 }
 
+// ─── Work orders ─────────────────────────────────────────────────────────────
+
 model WorkOrder {
-  id           String          @id @default(cuid())
-  vehicle      Vehicle         @relation(fields: [vehicleId], references: [id])
-  vehicleId    String
-  mechanic     User?           @relation("AssignedMechanic", fields: [mechanicId], references: [id])
-  mechanicId   String?
-  status       WorkOrderStatus @default(CHECKED_IN)
-  complaint    String
-  notes        String?
-  serviceItems ServiceItem[]
-  partsUsed    PartUsed[]
-  invoice      Invoice?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
+  id     String @id @default(cuid())
+  /// Human-facing number, displayed as WO-0001.
+  number Int    @unique @default(autoincrement())
+
+  vehicle       Vehicle @relation(fields: [vehicleId], references: [id])
+  vehicleId     String
+  mileageIn     Int
+  complaint     String
+  diagnosis     String?
+  workPerformed String?
+  notes         String?
+
+  status      WorkOrderStatus @default(CHECKED_IN)
+  mechanic    User?           @relation("AssignedMechanic", fields: [mechanicId], references: [id])
+  mechanicId  String?
+  createdBy   User            @relation("WorkOrderCreatedBy", fields: [createdById], references: [id])
+  createdById String
+  completedAt DateTime?
+
+  statusChanges   WorkOrderStatusChange[]
+  serviceItems    ServiceItem[]
+  partsUsed       PartUsed[]
+  stockMovements  StockMovement[]
+  recommendations ServiceRecommendation[] @relation("RecommendedOn")
+  fulfilled       ServiceRecommendation[] @relation("FulfilledOn")
+  invoice         Invoice?
+  appointment     Appointment?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([vehicleId])
+  @@index([mechanicId])
+}
+
+model WorkOrderStatusChange {
+  id          String           @id @default(cuid())
+  workOrder   WorkOrder        @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workOrderId String
+  /// Null for the initial CHECKED_IN entry.
+  fromStatus  WorkOrderStatus?
+  toStatus    WorkOrderStatus
+  note        String?
+  changedBy   User             @relation(fields: [changedById], references: [id])
+  changedById String
+  createdAt   DateTime         @default(now())
+
+  @@index([workOrderId, createdAt])
 }
 
 model ServiceItem {
   id          String    @id @default(cuid())
-  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
   workOrderId String
   description String
   laborCost   Decimal   @db.Decimal(10, 2)
+  createdAt   DateTime  @default(now())
+}
+
+// ─── Inventory ───────────────────────────────────────────────────────────────
+
+model InventoryItem {
+  id             String  @id @default(cuid())
+  sku            String  @unique
+  name           String
+  category       String
+  quantityOnHand Int     @default(0)
+  /// What the shop pays the supplier.
+  unitCost       Decimal @db.Decimal(10, 2)
+  /// What the customer is charged.
+  unitPrice      Decimal @db.Decimal(10, 2)
+  supplier       String?
+  /// Low-stock alert threshold.
+  reorderLevel   Int     @default(0)
+  isActive       Boolean @default(true)
+
+  partsUsed      PartUsed[]
+  stockMovements StockMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([name])
+  @@index([category])
 }
 
 model PartUsed {
-  id          String    @id @default(cuid())
-  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
-  workOrderId String
-  name        String
-  quantity    Int
-  unitCost    Decimal   @db.Decimal(10, 2)
+  id              String        @id @default(cuid())
+  workOrder       WorkOrder     @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workOrderId     String
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id])
+  inventoryItemId String
+  quantity        Int
+  /// Price snapshot at the time of use, so later catalog price changes don't alter invoices.
+  unitPrice       Decimal       @db.Decimal(10, 2)
+  createdAt       DateTime      @default(now())
 }
 
+model StockMovement {
+  id              String              @id @default(cuid())
+  inventoryItem   InventoryItem       @relation(fields: [inventoryItemId], references: [id])
+  inventoryItemId String
+  /// Signed: negative = stock out, positive = stock in.
+  quantityChange  Int
+  reason          StockMovementReason
+  workOrder       WorkOrder?          @relation(fields: [workOrderId], references: [id])
+  workOrderId     String?
+  note            String?
+  createdBy       User                @relation(fields: [createdById], references: [id])
+  createdById     String
+  createdAt       DateTime            @default(now())
+
+  @@index([inventoryItemId, createdAt])
+}
+
+// ─── Billing ─────────────────────────────────────────────────────────────────
+
 model Invoice {
-  id          String    @id @default(cuid())
-  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id])
-  workOrderId String    @unique
-  subtotal    Decimal   @db.Decimal(10, 2)
-  total       Decimal   @db.Decimal(10, 2)
-  generatedAt DateTime  @default(now())
+  id          String        @id @default(cuid())
+  /// Human-facing number, displayed as INV-0001.
+  number      Int           @unique @default(autoincrement())
+  workOrder   WorkOrder     @relation(fields: [workOrderId], references: [id])
+  workOrderId String        @unique
+  subtotal    Decimal       @db.Decimal(10, 2)
+  vatRate     Decimal       @default(0.07) @db.Decimal(4, 3)
+  vatAmount   Decimal       @db.Decimal(10, 2)
+  total       Decimal       @db.Decimal(10, 2)
+  status      InvoiceStatus @default(UNPAID)
+  /// S3 object key of the generated PDF, once uploaded.
+  pdfKey      String?
+  issuedAt    DateTime      @default(now())
+  paidAt      DateTime?
+}
+
+// ─── Reminders & appointments ────────────────────────────────────────────────
+
+model ServiceRecommendation {
+  id            String               @id @default(cuid())
+  vehicle       Vehicle              @relation(fields: [vehicleId], references: [id])
+  vehicleId     String
+  /// The visit where it was recommended.
+  workOrder     WorkOrder?           @relation("RecommendedOn", fields: [workOrderId], references: [id])
+  workOrderId   String?
+  description   String
+  /// At least one of dueMileage / dueDate is set (enforced in the service layer).
+  dueMileage    Int?
+  dueDate       DateTime?
+  status        RecommendationStatus @default(OPEN)
+  /// The later visit that performed it.
+  fulfilledBy   WorkOrder?           @relation("FulfilledOn", fields: [fulfilledById], references: [id])
+  fulfilledById String?
+  createdById   String
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  notifications NotificationLog[]
+
+  @@index([status, dueDate])
+  @@index([vehicleId])
+}
+
+model Appointment {
+  id          String            @id @default(cuid())
+  customer    Customer          @relation(fields: [customerId], references: [id])
+  customerId  String
+  vehicle     Vehicle           @relation(fields: [vehicleId], references: [id])
+  vehicleId   String
+  scheduledAt DateTime
+  reason      String
+  status      AppointmentStatus @default(REQUESTED)
+  /// Set on check-in.
+  workOrder   WorkOrder?        @relation(fields: [workOrderId], references: [id])
+  workOrderId String?           @unique
+  createdById String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  notifications NotificationLog[]
+
+  @@index([scheduledAt])
+  @@index([status])
+}
+
+model NotificationLog {
+  id               String                 @id @default(cuid())
+  type             NotificationType
+  recipientEmail   String
+  status           NotificationStatus     @default(PENDING)
+  error            String?
+  recommendation   ServiceRecommendation? @relation(fields: [recommendationId], references: [id])
+  recommendationId String?
+  appointment      Appointment?           @relation(fields: [appointmentId], references: [id])
+  appointmentId    String?
+  sentAt           DateTime?
+  createdAt        DateTime               @default(now())
+
+  @@index([type, createdAt])
+}
+
+// ─── Audit ───────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actor     User?    @relation(fields: [actorId], references: [id])
+  /// Null for system actions (e.g. the reminder Lambda).
+  actorId   String?
+  /// e.g. "workOrder.statusChanged", "vehicle.mileageCorrected", "user.deactivated"
+  action    String
+  entity    String
+  entityId  String
+  /// Before/after values or other context.
+  changes   Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
 }

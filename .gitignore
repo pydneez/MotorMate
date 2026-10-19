@@ -26,3 +26,5 @@ pnpm-debug.log*
 # os
 .DS_Store
 Thumbs.db
+# typescript incremental build info
+*.tsbuildinfo

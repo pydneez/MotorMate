@@ -54,10 +54,14 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
    pnpm install
    ```
 
-5. **Apply the database schema**
+5. **Apply the database schema and load sample data**
    ```bash
    npm run db:migrate
+   npm run db:seed
    ```
+   Sample logins (all with password `password123`): `admin@motormate.example`,
+   `advisor@motormate.example`, `mechanic@motormate.example`, and the customer
+   `jordan.lee@example.com`.
 
 6. **Run the apps**
    ```bash
@@ -68,6 +72,8 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
    `package.json` — pnpm still needs to be installed, since each script's body is
    `pnpm --filter <name> dev` (`--filter` runs a script in one workspace package,
    matched by its `package.json` `name` (`backend`/`frontend`), not its directory name).
+   Both scripts first build the shared `packages/types` package (`npm run build:types`);
+   if you edit shared types while the apps are running, re-run that command.
 
 ## Everyday commands
 
@@ -88,9 +94,10 @@ Everyone runs their **own** local Postgres via Docker — nobody shares a databa
 day-to-day dev. To keep local data consistent enough to be useful:
 
 - Always pull and run new Prisma migrations after pulling `main` (`npm run db:migrate`).
-- Use `npm run db:seed` to populate sample data (an ADVISOR + MECHANIC user, a customer
-  with a vehicle, and a work order) instead of hand-creating test records. Safe to
-  re-run — it upserts, so it won't duplicate rows.
+- Use `npm run db:seed` to populate sample data (one login per role, three customers
+  with Thai phone numbers and plates, ten inventory parts, an open and a completed work
+  order, and a pending appointment) instead of hand-creating test records. Safe to
+  re-run — it won't duplicate rows.
 - Never commit `.env` — only `.env.example` should be in git.
 
 ## Project structure
