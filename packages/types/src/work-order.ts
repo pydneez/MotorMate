@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { wholeNumber } from "./common";
 
 /** Shop-visit lifecycle from the kickoff report, plus CANCELLED. */
 export const WorkOrderStatusSchema = z.enum([
@@ -39,7 +40,7 @@ export function formatWorkOrderNumber(number: number): string {
 
 export const CreateWorkOrderSchema = z.object({
   vehicleId: z.string().min(1),
-  mileageIn: z.coerce.number().int().nonnegative(),
+  mileageIn: wholeNumber("Mileage", (n) => n.nonnegative("Mileage can't be negative")),
   complaint: z.string().trim().min(1, "Describe the reason for the visit"),
   mechanicId: z.string().nullable().optional(),
   appointmentId: z.string().optional(),
