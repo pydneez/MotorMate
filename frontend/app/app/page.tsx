@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { Calendar, Car } from "lucide-react";
-import type { AuthUser } from "@motormate/types";
+import type { AuthUser, Paginated, VehicleSummary } from "@motormate/types";
 import { authOptions } from "@/auth";
+import { VehicleCard } from "@/components/vehicles/vehicle-card";
+import { serverGet } from "@/lib/server";
 
 function greeting(): string {
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", timeZone: "Asia/Bangkok" }).format(new Date()));
@@ -41,7 +43,8 @@ const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, { label: string
   ],
 };
 
-function CustomerDashboard() {
+async function CustomerDashboard() {
+  const vehicles = await serverGet<Paginated<VehicleSummary>>("/vehicles?pageSize=6");
   return (
     <div className="space-y-6">
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
@@ -51,10 +54,21 @@ function CustomerDashboard() {
             View all →
           </Link>
         </div>
-        <div className="mt-4 flex flex-col items-center rounded-md border border-dashed border-slate-300 py-10 text-center">
-          <Car className="h-8 w-8 text-slate-300" aria-hidden />
-          <p className="mt-2 text-sm text-slate-500">Your vehicles and their next service will appear here.</p>
-        </div>
+        {vehicles.items.length === 0 ? (
+          <div className="mt-4 flex flex-col items-center rounded-md border border-dashed border-slate-300 py-10 text-center">
+            <Car className="h-8 w-8 text-slate-300" aria-hidden />
+            <p className="mt-2 text-sm text-slate-500">No vehicles yet.</p>
+            <Link href="/app/vehicles/new" className="mt-2 text-sm font-medium text-blue-600 hover:underline">
+              Add my vehicle →
+            </Link>
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {vehicles.items.map((vehicle) => (
+              <VehicleCard key={vehicle.id} vehicle={vehicle} />
+            ))}
+          </div>
+        )}
       </section>
       <Link
         href="/app/appointments"
