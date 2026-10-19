@@ -15,6 +15,7 @@ import {
   Menu,
   Package,
   Receipt,
+  UserCircle,
   UserCog,
   Users,
   X,
@@ -111,6 +112,14 @@ function UserMenu({ user }: { user: AuthUser }) {
             <p className="truncate text-sm font-medium text-slate-900">{user.email}</p>
             <p className="text-xs text-slate-500">{ROLE_LABELS[user.role]}</p>
           </div>
+          <Link
+            href="/app/profile"
+            onClick={() => setOpen(false)}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+          >
+            <UserCircle className="h-4 w-4" aria-hidden />
+            Profile
+          </Link>
           <SignOutButton />
         </div>
       )}

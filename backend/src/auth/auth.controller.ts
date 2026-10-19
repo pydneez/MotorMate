@@ -1,8 +1,10 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post } from "@nestjs/common";
 import {
+  ChangePasswordSchema,
   LoginSchema,
   RegisterSchema,
   type AuthUser,
+  type ChangePasswordInput,
   type LoginInput,
   type LoginResponse,
   type RegisterData,
@@ -32,5 +34,14 @@ export class AuthController {
   @Get("me")
   me(@CurrentUser() user: AuthUser): AuthUser {
     return user;
+  }
+
+  @Patch("me/password")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  changePassword(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodValidationPipe(ChangePasswordSchema)) body: ChangePasswordInput,
+  ): Promise<void> {
+    return this.authService.changePassword(user.id, body);
   }
 }

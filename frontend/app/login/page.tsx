@@ -52,7 +52,7 @@ function LoginForm() {
           error={fieldErrors.password}
         />
         {error && <Alert>{error}</Alert>}
-        <Button type="submit" loading={loading}>
+        <Button type="submit" loading={loading} className="w-full">
           Sign in
         </Button>
       </form>

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { wholeNumber } from "./common";
 
 export const ServiceItemSchema = z.object({
   id: z.string(),
@@ -27,7 +28,7 @@ export type PartUsed = z.infer<typeof PartUsedSchema>;
 
 export const CreatePartUsedSchema = z.object({
   inventoryItemId: z.string().min(1),
-  quantity: z.coerce.number().int().positive("Quantity must be at least 1"),
+  quantity: wholeNumber("Quantity", (n) => n.positive("Quantity must be at least 1")),
 });
 
 export type CreatePartUsedInput = z.input<typeof CreatePartUsedSchema>;

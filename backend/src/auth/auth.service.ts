@@ -1,13 +1,21 @@
-import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
-import type { AuthUser, LoginInput, LoginResponse, RegisterData } from "@motormate/types";
+import type { AuthUser, ChangePasswordInput, LoginInput, LoginResponse, RegisterData } from "@motormate/types";
+import { writeAudit } from "../common/utils/audit";
 import { PrismaService } from "../prisma/prisma.service";
 
 /** Access token lifetime — roughly one shop shift. */
 export const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60;
 
-const BCRYPT_ROUNDS = 10;
+export const BCRYPT_ROUNDS = 10;
 
 type UserWithCustomer = {
   id: string;
@@ -112,6 +120,24 @@ export class AuthService {
     });
 
     return this.issueToken(toAuthUser(user));
+  }
+
+  /** Any signed-in user changing their own password; the current one must be correct. */
+  async changePassword(userId: string, { currentPassword, newPassword }: ChangePasswordInput): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException("User not found");
+    // 400 rather than 401, so the frontend doesn't treat it as an expired session.
+    if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      throw new BadRequestException({
+        message: "Current password is incorrect",
+        errors: { currentPassword: ["Current password is incorrect"] },
+      });
+    }
+    const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+      await writeAudit(tx, { actorId: userId, action: "user.passwordChanged", entity: "User", entityId: userId });
+    });
   }
 
   /** Used by JwtStrategy on every authenticated request. */
