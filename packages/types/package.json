@@ -2,12 +2,15 @@
   "name": "@motormate/types",
   "version": "0.1.0",
   "private": true,
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "libphonenumber-js": "1.11.20",
     "zod": "^3.23.8"
   },
   "devDependencies": {

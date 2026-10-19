@@ -1,41 +1,55 @@
 import { z } from "zod";
 
-/** Mirrors the shop-visit lifecycle: check-in -> diagnosis -> repair -> completed (then invoiced). */
+/** Shop-visit lifecycle from the kickoff report, plus CANCELLED. */
 export const WorkOrderStatusSchema = z.enum([
   "CHECKED_IN",
-  "IN_DIAGNOSIS",
-  "IN_REPAIR",
+  "DIAGNOSING",
+  "AWAITING_PARTS",
+  "IN_PROGRESS",
+  "QUALITY_CHECK",
   "COMPLETED",
+  "CANCELLED",
 ]);
 
 export type WorkOrderStatus = z.infer<typeof WorkOrderStatusSchema>;
 
 export const WorkOrderSchema = z.object({
   id: z.string(),
+  number: z.number().int(),
   vehicleId: z.string(),
-  mechanicId: z.string().nullable(),
-  status: WorkOrderStatusSchema,
-  complaint: z.string().min(1),
+  mileageIn: z.number().int(),
+  complaint: z.string(),
+  diagnosis: z.string().nullable(),
+  workPerformed: z.string().nullable(),
   notes: z.string().nullable(),
+  status: WorkOrderStatusSchema,
+  mechanicId: z.string().nullable(),
+  createdById: z.string(),
+  completedAt: z.coerce.date().nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });
 
 export type WorkOrder = z.infer<typeof WorkOrderSchema>;
 
-export const CreateWorkOrderSchema = WorkOrderSchema.omit({
-  id: true,
-  status: true,
-  createdAt: true,
-  updatedAt: true,
-}).extend({
+/** Display helper: 7 → "WO-0007". */
+export function formatWorkOrderNumber(number: number): string {
+  return `WO-${String(number).padStart(4, "0")}`;
+}
+
+export const CreateWorkOrderSchema = z.object({
+  vehicleId: z.string().min(1),
+  mileageIn: z.coerce.number().int().nonnegative(),
+  complaint: z.string().trim().min(1, "Describe the reason for the visit"),
   mechanicId: z.string().nullable().optional(),
+  appointmentId: z.string().optional(),
 });
 
-export type CreateWorkOrderInput = z.infer<typeof CreateWorkOrderSchema>;
+export type CreateWorkOrderInput = z.input<typeof CreateWorkOrderSchema>;
 
 export const UpdateWorkOrderStatusSchema = z.object({
   status: WorkOrderStatusSchema,
+  note: z.string().trim().optional(),
 });
 
 export type UpdateWorkOrderStatusInput = z.infer<typeof UpdateWorkOrderStatusSchema>;

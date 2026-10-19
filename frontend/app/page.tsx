@@ -1,7 +1,8 @@
-export default function Home() {
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <h1 className="text-3xl font-semibold">Hello, MotorMate!</h1>
-    </main>
-  );
+import { redirect } from "next/navigation";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/auth";
+
+export default async function Home() {
+  const session = await getServerSession(authOptions);
+  redirect(session ? "/app" : "/login");
 }

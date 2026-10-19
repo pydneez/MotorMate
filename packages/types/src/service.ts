@@ -13,16 +13,21 @@ export const CreateServiceItemSchema = ServiceItemSchema.omit({ id: true });
 
 export type CreateServiceItemInput = z.infer<typeof CreateServiceItemSchema>;
 
+/** A catalog part consumed on a work order; stock is deducted when it is logged. */
 export const PartUsedSchema = z.object({
   id: z.string(),
   workOrderId: z.string(),
-  name: z.string().min(1),
+  inventoryItemId: z.string(),
   quantity: z.number().int().positive(),
-  unitCost: z.number().nonnegative(),
+  /** Price snapshot at the time of use. */
+  unitPrice: z.number().nonnegative(),
 });
 
 export type PartUsed = z.infer<typeof PartUsedSchema>;
 
-export const CreatePartUsedSchema = PartUsedSchema.omit({ id: true });
+export const CreatePartUsedSchema = z.object({
+  inventoryItemId: z.string().min(1),
+  quantity: z.coerce.number().int().positive("Quantity must be at least 1"),
+});
 
-export type CreatePartUsedInput = z.infer<typeof CreatePartUsedSchema>;
+export type CreatePartUsedInput = z.input<typeof CreatePartUsedSchema>;
