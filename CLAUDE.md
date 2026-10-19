@@ -186,10 +186,40 @@ since scope is intentionally tight against the Nov deadline.
 - Request validation: backend controllers validate bodies with the shared zod schemas
   via `ZodValidationPipe` (`backend/src/common/pipes`) — not class-validator DTOs — so
   the frontend form and the API apply the exact same rules.
-- Commits: short imperative subject line (`add work order status transitions`, not
-  `Added` or `Adding`).
+- Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
+  `type(scope): subject` — lowercase imperative subject, no trailing period
+  (`feat(work-orders): add status transitions`, not `Added status transitions`).
+  - Types: `feat` (new behaviour), `fix` (bug fix), `refactor` (no behaviour change),
+    `test`, `docs`, `chore` (deps, config, tooling), `ci`, `build`, `perf`, `style`.
+  - Scope (optional): the feature module or package — `auth`, `customers`, `vehicles`,
+    `work-orders`, `inventory`, `invoices`, `reminders`, `appointments`, `db`, `types`,
+    `frontend`, `backend`, `infra`.
+  - Removing code isn't its own type: use the type that describes why (`refactor`,
+    `chore`, or `feat!`/`fix!` with a `BREAKING CHANGE:` footer if it breaks an API).
+  - Optional body after a blank line: bullet points for what changed and why.
+- Branches: `type/short-description`, e.g. `feat/schema-and-auth`, `fix/login-redirect`.
 - Tests: Jest for unit tests in both apps, Playwright for end-to-end. New MVP-list
   features should land with at least one test; stretch features can follow up.
+
+## Working agreement with Claude (how each build step runs)
+
+The build is done in numbered steps (Step 1 = schema + auth, Step 2 = ...). For every step:
+
+1. **Plan first, no code.** Before touching any file, Claude posts a step summary:
+   - what the step covers and what's explicitly out of it;
+   - backend changes (endpoints, roles allowed, rules, tests);
+   - frontend changes (pages and components);
+   - rough ASCII wireframes for any new or changed screens;
+   - open decisions, each with a recommended option.
+2. **Wait for feedback.** Claude asks for feedback and only starts once the user has
+   answered the open decisions and given an explicit go-ahead. If the plan changes during
+   that discussion, Claude restates what changed before starting.
+3. **Build and verify** on a `type/short-description` branch: typecheck, tests, and a
+   browser check of the new screens. Claude removes any test data it created.
+4. **Report.** Claude summarizes what was done, what was verified, and anything that
+   deviated from the plan. Then it hands over the `git add` / `git commit` commands with a
+   Conventional Commits message. **The user commits and pushes themselves**; Claude does
+   not commit unless asked.
 
 ## Local development
 
