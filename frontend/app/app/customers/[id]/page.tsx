@@ -1,12 +1,18 @@
 import { Mail, MessageCircle, Pencil, Phone, Plus } from "lucide-react";
-import type { CustomerDetail } from "@motormate/types";
-import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import type { CustomerDetail, CustomerDuplicates } from "@motormate/types";
+import { MergeCustomers } from "@/components/customers/merge-customers";
+import { Alert, Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
 import { formatMonth, formatThaiPhone, fullName } from "@/lib/format";
 import { serverGet } from "@/lib/server";
 
 export default async function CustomerPage({ params }: { params: { id: string } }) {
   const customer = await serverGet<CustomerDetail>(`/customers/${params.id}`);
+  // Other records with the same phone — candidates for merging (usually none, rarely one).
+  const { byPhone } = await serverGet<CustomerDuplicates>(
+    `/customers/duplicates?phone=${encodeURIComponent(customer.phone)}&excludeId=${customer.id}`,
+  );
+  const duplicates = await Promise.all(byPhone.map((match) => serverGet<CustomerDetail>(`/customers/${match.id}`)));
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -37,15 +43,42 @@ export default async function CustomerPage({ params }: { params: { id: string } 
         }
       />
 
+      {duplicates.length > 0 && (
+        <div className="mb-6">
+          <Alert tone="warning">
+            <p className="font-medium">Possible duplicate: another customer has the same phone number</p>
+            <ul className="mt-2 space-y-2">
+              {duplicates.map((other) => (
+                <li key={other.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    {fullName(other)} · {formatThaiPhone(other.phone)} · {other.email ?? "no email"} ·{" "}
+                    {other.vehicleCount} vehicle{other.vehicleCount === 1 ? "" : "s"} ·{" "}
+                    {other.hasPortalAccount ? "online account" : "walk-in"}
+                  </span>
+                  <span className="flex gap-2">
+                    <LinkButton href={`/app/customers/${other.id}`} variant="secondary">
+                      Open →
+                    </LinkButton>
+                    <MergeCustomers current={customer} other={other} />
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </Alert>
+        </div>
+      )}
+
       <div className="mb-6 flex flex-wrap items-center gap-2 text-sm text-slate-500">
         Portal account:{" "}
         {customer.hasPortalAccount ? <Badge tone="green">Active</Badge> : <Badge>None</Badge>}
         <span>· Customer since {formatMonth(customer.createdAt)}</span>
-        {!customer.email && <Badge tone="amber">No email — can't receive reminders</Badge>}
+        {!customer.email && (
+          <Badge tone="amber">No email: can&apos;t receive reminders or link an online account</Badge>
+        )}
       </div>
 
       {customer.notes && (
-        <Card className="mb-6 p-4 text-sm text-slate-700">
+        <Card className="mb-6 whitespace-pre-line p-4 text-sm text-slate-700">
           <p className="mb-1 text-xs font-medium uppercase tracking-wide text-slate-500">Notes</p>
           {customer.notes}
         </Card>
