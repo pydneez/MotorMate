@@ -26,6 +26,9 @@ export function createPrismaMock() {
     customer: model(),
     vehicle: model(),
     appointment: model(),
+    // `fields` stands in for Prisma field references (e.g. quantityOnHand <= reorderLevel).
+    inventoryItem: { ...model(), fields: { reorderLevel: "<ref:reorderLevel>" } },
+    stockMovement: model(),
     auditLog: { create: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn(),
   };

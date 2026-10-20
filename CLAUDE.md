@@ -121,6 +121,7 @@ backend/src/
     customers.service.ts
     customers.module.ts
   vehicles/             also vehicle.mapper.ts (VehicleSummary / service history shapes)
+  inventory/            catalogue + StockService (the only code that changes stock levels)
   common/
     decorators/          @Public, @Roles, @CurrentUser
     guards/              JwtAuthGuard, RolesGuard (both global)
@@ -143,7 +144,7 @@ Patterns the existing modules follow (copy them for new ones):
 - **Customers are scoped in the service**, not just the guard: a customer requesting
   someone else's record gets **404**, never 403, so existence isn't revealed.
 - Number fields from forms use `wholeNumber(label)` from `packages/types` (blank = required,
-  never silently 0).
+  never silently 0); money uses `money(label)` (≥ 0, at most 2 decimals, THB excl. VAT).
 
 Frontend pages follow the same split: server components fetch with `serverGet()`
 (`frontend/lib/server.ts`, token from the session, 404 → not-found page); client forms use
@@ -183,6 +184,15 @@ schema before calling the API. List search and paging live in the URL.
 - **Stock is deducted when a part is logged** on a work order (it reserves the part), and
   returned when the part is removed or the work order is cancelled. Every change writes a
   `StockMovement` in the same DB transaction.
+- **All stock changes go through `StockService.change(tx, …)`** (`backend/src/inventory`):
+  it uses one conditional UPDATE, so stock can never go negative even under concurrent
+  requests, and it writes the `StockMovement` + audit entry. Three reasons only:
+  `PURCHASE` (Receive, and opening stock), `ADJUSTMENT` (Stocktake: the user enters the
+  counted quantity plus a required reason; guarded against the count changing meanwhile),
+  `WORK_ORDER` (parts used, Step 4). Quantity is never editable directly.
+- Inventory: admins/advisors manage it; mechanics can view it, and their stock usage is
+  recorded through work orders. Items are deactivated, never deleted. Low stock means
+  on hand ≤ reorder level. Prices exclude VAT; a price below cost only warns.
 - **Mileage never decreases** except by an admin correction (audited).
 - **Duplicates:** VIN is a hard unique constraint. Same phone (customer) or same
   plate+province (vehicle) only raises a "possible duplicate" warning.
