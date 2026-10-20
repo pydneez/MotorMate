@@ -23,7 +23,7 @@ function makeUser(overrides: Partial<Record<string, unknown>> = {}) {
 function setup() {
   const prisma = {
     user: { findUnique: jest.fn(), update: jest.fn(), create: jest.fn() },
-    customer: { findUnique: jest.fn(), update: jest.fn(), create: jest.fn() },
+    customer: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
     auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -120,5 +120,31 @@ describe("AuthService.register", () => {
     prisma.user.findUnique.mockResolvedValue(makeUser());
 
     await expect(service.register(input)).rejects.toThrow(ConflictException);
+  });
+
+  it("rejects a phone that is already linked to an online account, as a phone field error", async () => {
+    const { prisma, service } = setup();
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.customer.findFirst.mockResolvedValue({ id: "cust-with-login" });
+
+    const error = await service.register({ ...input, email: "second.account@example.com" }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(error.getResponse().errors.phone[0]).toContain("already linked to an online account");
+    expect(prisma.customer.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { phone: input.phone, userId: { not: null } } }),
+    );
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it("still allows sign-up when the phone only matches a shop record without a login", async () => {
+    const { prisma, service } = setup();
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.customer.findFirst.mockResolvedValue(null); // the walk-in record has no login
+    prisma.customer.findUnique.mockResolvedValue(null);
+    prisma.user.create.mockResolvedValue(makeUser({ id: "user-4", email: input.email, role: "CUSTOMER" }));
+    prisma.customer.create.mockResolvedValue({ id: "cust-new" });
+
+    await expect(service.register(input)).resolves.toEqual(expect.objectContaining({ accessToken: "signed-token" }));
   });
 });

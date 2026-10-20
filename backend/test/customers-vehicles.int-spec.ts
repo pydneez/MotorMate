@@ -392,3 +392,49 @@ describe("merging duplicate customers", () => {
     await api(tokens.advisor).post(`/customers/${ids.jordan}/merge`, { sourceId: ids.malee }).expect(400);
   });
 });
+
+describe("one online account per phone number", () => {
+  const signup = (body: object) => request(app.getHttpServer()).post("/auth/register").send(body);
+
+  it("refuses a second sign-up with a phone that already has an online account, in any format", async () => {
+    // Jordan already has an online account on +66812345678.
+    const res = await signup({
+      firstName: "Jordan",
+      lastName: "Work",
+      email: "jordan.work@test.example",
+      phone: "081 234 5678",
+      password: PASSWORD,
+    }).expect(409);
+
+    expect(res.body.errors.phone[0]).toContain("already linked to an online account");
+    expect(await prisma.user.findUnique({ where: { email: "jordan.work@test.example" } })).toBeNull();
+  });
+
+  it("still links a sign-up to a walk-in record when email and phone both match", async () => {
+    const walkIn = await api(tokens.advisor)
+      .post("/customers", { firstName: "Pim", lastName: "Walkin", phone: "0851112222", email: "pim@test.example" })
+      .expect(201);
+
+    const res = await signup({
+      firstName: "Pim",
+      lastName: "Walkin",
+      email: "pim@test.example",
+      phone: "085-111-2222",
+      password: PASSWORD,
+    }).expect(201);
+
+    expect(res.body.user.customerId).toBe(walkIn.body.id);
+  });
+
+  it("allows a sign-up whose phone only matches a walk-in record without a login", async () => {
+    await api(tokens.advisor).post("/customers", { firstName: "Nok", lastName: "Walkin", phone: "0853334444" }).expect(201);
+
+    await signup({
+      firstName: "Nok",
+      lastName: "Online",
+      email: "nok@test.example",
+      phone: "0853334444",
+      password: PASSWORD,
+    }).expect(201);
+  });
+});
