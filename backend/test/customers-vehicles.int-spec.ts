@@ -312,3 +312,129 @@ describe("staff management over HTTP", () => {
       .expect(401);
   });
 });
+
+describe("merging duplicate customers", () => {
+  it("gives a self-registered customer their walk-in history", async () => {
+    // Walk-in record created at the counter: phone only, one vehicle with a completed visit.
+    const walkIn = await api(tokens.advisor)
+      .post("/customers", { firstName: "Somsak", lastName: "Walkin", phone: "0861234567", lineId: "somsak", notes: "Pays cash" })
+      .expect(201);
+    const vehicle = await api(tokens.advisor)
+      .post("/vehicles", {
+        customerId: walkIn.body.id,
+        vin: "MR0FB8CD3H0000123",
+        plate: "4กข 4444",
+        province: "นนทบุรี",
+        make: "Toyota",
+        model: "Hilux",
+        year: 2017,
+        mileage: 90000,
+      })
+      .expect(201);
+    const advisorUser = await prisma.user.findUniqueOrThrow({ where: { email: "advisor@test.example" } });
+    await prisma.workOrder.create({
+      data: {
+        vehicleId: vehicle.body.id,
+        mileageIn: 90000,
+        complaint: "Oil change",
+        status: "COMPLETED",
+        completedAt: new Date(),
+        createdById: advisorUser.id,
+      },
+    });
+
+    // Later the customer signs up with an email and the same phone → a separate record.
+    const signup = await request(app.getHttpServer())
+      .post("/auth/register")
+      .send({ firstName: "Somsak", lastName: "Online", email: "somsak@test.example", phone: "086-123-4567", password: PASSWORD })
+      .expect(201);
+    const portalId = signup.body.user.customerId;
+    expect(portalId).not.toBe(walkIn.body.id);
+    const before = await api(signup.body.accessToken).get("/vehicles").expect(200);
+    expect(before.body.items).toHaveLength(0);
+
+    // Staff merge the walk-in into the portal record.
+    const merged = await api(tokens.advisor).post(`/customers/${portalId}/merge`, { sourceId: walkIn.body.id }).expect(200);
+    expect(merged.body).toEqual(
+      expect.objectContaining({ id: portalId, email: "somsak@test.example", lineId: "somsak", notes: "Pays cash", vehicleCount: 1 }),
+    );
+    await api(tokens.advisor).get(`/customers/${walkIn.body.id}`).expect(404);
+
+    // The customer now sees the vehicle and its service history.
+    const after = await api(signup.body.accessToken).get("/vehicles").expect(200);
+    expect(after.body.items.map((v: { model: string }) => v.model)).toEqual(["Hilux"]);
+    const detail = await api(signup.body.accessToken).get(`/vehicles/${vehicle.body.id}`).expect(200);
+    expect(detail.body.history).toHaveLength(1);
+    expect(detail.body.history[0].complaint).toBe("Oil change");
+
+    const audit = await prisma.auditLog.findFirst({ where: { action: "customer.merged", entityId: portalId } });
+    expect(audit?.changes).toEqual(expect.objectContaining({ vehiclesMoved: 1, fieldsFilled: ["lineId", "notes"] }));
+  });
+
+  it("frees the merged record's email for reuse", async () => {
+    const kept = await api(tokens.advisor)
+      .post("/customers", { firstName: "Keep", lastName: "Me", phone: "0871111111", email: "keep@test.example" })
+      .expect(201);
+    const dupe = await api(tokens.advisor)
+      .post("/customers", { firstName: "Keep", lastName: "Dupe", phone: "087-111-1111", email: "dupe@test.example" })
+      .expect(201);
+
+    await api(tokens.advisor).post(`/customers/${kept.body.id}/merge`, { sourceId: dupe.body.id }).expect(200);
+
+    await api(tokens.advisor)
+      .post("/customers", { firstName: "New", lastName: "Owner", phone: "0872222222", email: "dupe@test.example" })
+      .expect(201);
+  });
+
+  it("only lets admins and advisors merge, and refuses different phones", async () => {
+    await api(tokens.mechanic).post(`/customers/${ids.jordan}/merge`, { sourceId: ids.malee }).expect(403);
+    await api(tokens.jordan).post(`/customers/${ids.jordan}/merge`, { sourceId: ids.malee }).expect(403);
+    await api(tokens.advisor).post(`/customers/${ids.jordan}/merge`, { sourceId: ids.malee }).expect(400);
+  });
+});
+
+describe("one online account per phone number", () => {
+  const signup = (body: object) => request(app.getHttpServer()).post("/auth/register").send(body);
+
+  it("refuses a second sign-up with a phone that already has an online account, in any format", async () => {
+    // Jordan already has an online account on +66812345678.
+    const res = await signup({
+      firstName: "Jordan",
+      lastName: "Work",
+      email: "jordan.work@test.example",
+      phone: "081 234 5678",
+      password: PASSWORD,
+    }).expect(409);
+
+    expect(res.body.errors.phone[0]).toContain("already linked to an online account");
+    expect(await prisma.user.findUnique({ where: { email: "jordan.work@test.example" } })).toBeNull();
+  });
+
+  it("still links a sign-up to a walk-in record when email and phone both match", async () => {
+    const walkIn = await api(tokens.advisor)
+      .post("/customers", { firstName: "Pim", lastName: "Walkin", phone: "0851112222", email: "pim@test.example" })
+      .expect(201);
+
+    const res = await signup({
+      firstName: "Pim",
+      lastName: "Walkin",
+      email: "pim@test.example",
+      phone: "085-111-2222",
+      password: PASSWORD,
+    }).expect(201);
+
+    expect(res.body.user.customerId).toBe(walkIn.body.id);
+  });
+
+  it("allows a sign-up whose phone only matches a walk-in record without a login", async () => {
+    await api(tokens.advisor).post("/customers", { firstName: "Nok", lastName: "Walkin", phone: "0853334444" }).expect(201);
+
+    await signup({
+      firstName: "Nok",
+      lastName: "Online",
+      email: "nok@test.example",
+      phone: "0853334444",
+      password: PASSWORD,
+    }).expect(201);
+  });
+});

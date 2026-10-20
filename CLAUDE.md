@@ -89,6 +89,15 @@ phone exists and has no login yet, the new user is linked to it; otherwise a new
 `Customer` is created and staff can merge later. Email verification would be the
 production fix for claim-by-email — documented, not built.
 
+**One online account per phone number:** sign-up is refused (409, error on the `phone`
+field) when the phone already belongs to a `Customer` that has a login. Shop records
+*without* a login don't block sign-up — that's the walk-in case, handled by linking or by
+the staff merge tool. Trade-offs, for the final document: a family sharing one phone can
+only have one online account (staff can still create shop records for the others), and the
+message reveals that *some* account uses that phone, similar to "email already registered".
+The check is in the service, not a DB constraint, so two simultaneous sign-ups could still
+race — acceptable at this scale.
+
 Frontend is hosted on Amplify (not static S3/CloudFront) specifically because NextAuth's
 `/api/auth/*` routes need a server runtime, which a static export can't provide.
 
@@ -177,6 +186,19 @@ schema before calling the API. List search and paging live in the URL.
 - **Mileage never decreases** except by an admin correction (audited).
 - **Duplicates:** VIN is a hard unique constraint. Same phone (customer) or same
   plate+province (vehicle) only raises a "possible duplicate" warning.
+- **Merging duplicate customers** (`POST /customers/:id/merge`, admin/advisor): the usual
+  case is a walk-in record (phone only) plus a later self-registration with the same phone.
+  - Only records with the **same phone**; at most **one** may have a portal login, and
+    that one is always kept (so the sign-in keeps working).
+  - Vehicles (with their whole history) and appointments move to the kept record; kept
+    values win, blank email/LINE ID are filled, notes are combined; the emptied record is
+    **deleted** (the one exception to "no deleting customers") and a `customer.merged`
+    audit entry records what moved. All in one transaction.
+  - Two records that both have logins can't be merged. Sign-up allows only one online
+    account per phone (see Auth architecture), so this only happens for accounts created
+    before that rule existed.
+  - The customer dashboard's "ask the advisor to link your history" hint is deliberately
+    generic: it never reveals whether a record with that phone exists.
 - **Thailand only for now**, stored so other countries can be added later:
   - Phones are stored as E.164 (`+66812345678`), displayed as `081-234-5678`; use
     `normalizeThaiPhone` / `formatThaiPhone` from `packages/types`.

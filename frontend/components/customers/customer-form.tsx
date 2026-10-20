@@ -86,7 +86,7 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
           label="Email (optional)"
           name="email"
           type="email"
-          hint="Needed for maintenance reminders"
+          hint="Needed for reminders and so the customer can link their online account later"
           defaultValue={customer?.email ?? ""}
           onBlur={onBlurCheck}
           error={fieldErrors.email}

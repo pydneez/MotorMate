@@ -63,11 +63,24 @@ export class AuthService {
 
   /**
    * Customer self-registration. Links to an existing shop-created Customer only when both
-   * email and phone match (see CLAUDE.md "Auth architecture").
+   * email and phone match, and allows one online account per phone number (see CLAUDE.md
+   * "Auth architecture").
    */
   async register(data: RegisterData): Promise<LoginResponse> {
     if (await this.prisma.user.findUnique({ where: { email: data.email } })) {
       throw new ConflictException("An account with this email already exists. Please sign in.");
+    }
+
+    // One online account per phone: a second sign-up with the same phone would create two
+    // logins that can never be merged. Shop records without a login are fine (that's the
+    // walk-in case, linked below or merged by staff).
+    const phoneHasAccount = await this.prisma.customer.findFirst({
+      where: { phone: data.phone, userId: { not: null } },
+      select: { id: true },
+    });
+    if (phoneHasAccount) {
+      const message = "This phone number is already linked to an online account. Sign in instead, or contact the shop.";
+      throw new ConflictException({ message, errors: { phone: [message] } });
     }
 
     const existingCustomer = await this.prisma.customer.findUnique({ where: { email: data.email } });

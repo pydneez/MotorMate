@@ -61,6 +61,10 @@ async function CustomerDashboard() {
             <Link href="/app/vehicles/new" className="mt-2 text-sm font-medium text-blue-600 hover:underline">
               Add my vehicle →
             </Link>
+            {/* Deliberately generic: never reveals whether a matching shop record exists. */}
+            <p className="mt-4 max-w-sm text-xs text-slate-500">
+              Been to the shop before? Ask the service advisor to link your service history to this account.
+            </p>
           </div>
         ) : (
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

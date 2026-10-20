@@ -39,8 +39,10 @@ export default function RegisterPage() {
     } catch (err) {
       setLoading(false);
       if (err instanceof ApiError) {
-        setError(err.message);
-        setFieldErrors(Object.fromEntries(FIELDS.map((name) => [name, err.fieldErrors[name]?.[0]])));
+        const serverFieldErrors = Object.fromEntries(FIELDS.map((name) => [name, err.fieldErrors[name]?.[0]]));
+        setFieldErrors(serverFieldErrors);
+        // A field-level message (e.g. "phone already linked") is shown on the field; don't repeat it.
+        setError(Object.values(serverFieldErrors).some(Boolean) ? null : err.message);
       } else {
         setError("Can't reach the server. Please try again.");
       }

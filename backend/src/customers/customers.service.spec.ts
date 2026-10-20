@@ -193,3 +193,114 @@ describe("CustomersService own profile", () => {
     expect(prisma.customer.update.mock.calls[0][0].where).toEqual({ id: "cust-1" });
   });
 });
+
+describe("CustomersService.merge", () => {
+  // Kept record: self-registered, has the portal login. Source: shop-created walk-in.
+  const portal = () => customerRow({ id: "kept", userId: "u-1", email: "jordan@gmail.com", lineId: null, notes: null });
+  const walkIn = () => customerRow({ id: "walkin", email: null, lineId: "jordan.lee", notes: "Prefers mornings" });
+
+  function setupMerge(target: Record<string, unknown>, source: Record<string, unknown>) {
+    const ctx = setup();
+    ctx.prisma.customer.findUnique.mockImplementation(({ where, include }) => {
+      if (include) return Promise.resolve({ ...target, vehicles: [] }); // findOne() after merging
+      return Promise.resolve(where.id === target.id ? target : where.id === source.id ? source : null);
+    });
+    ctx.prisma.vehicle.updateMany.mockResolvedValue({ count: 1 });
+    ctx.prisma.appointment.updateMany.mockResolvedValue({ count: 2 });
+    return ctx;
+  }
+
+  it("moves vehicles and appointments, fills blanks, removes the merged record and audits it", async () => {
+    const { prisma, customers } = setupMerge(portal(), walkIn());
+
+    await customers.merge(advisor, "kept", "walkin");
+
+    expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({ where: { customerId: "walkin" }, data: { customerId: "kept" } });
+    expect(prisma.appointment.updateMany).toHaveBeenCalledWith({ where: { customerId: "walkin" }, data: { customerId: "kept" } });
+    expect(prisma.customer.update).toHaveBeenCalledWith({
+      where: { id: "kept" },
+      data: { lineId: "jordan.lee", notes: "Prefers mornings" },
+    });
+    expect(prisma.customer.delete).toHaveBeenCalledWith({ where: { id: "walkin" } });
+    const audit = prisma.auditLog.create.mock.calls[0][0].data;
+    expect(audit).toEqual(
+      expect.objectContaining({
+        action: "customer.merged",
+        entityId: "kept",
+        changes: expect.objectContaining({ vehiclesMoved: 1, appointmentsMoved: 2, fieldsFilled: ["lineId", "notes"] }),
+      }),
+    );
+  });
+
+  it("moves the email across, freeing it on the merged record first", async () => {
+    const { prisma, customers } = setupMerge(
+      customerRow({ id: "kept", email: null }),
+      customerRow({ id: "walkin", email: "malee@example.com" }),
+    );
+
+    await customers.merge(advisor, "kept", "walkin");
+
+    const updates = prisma.customer.update.mock.calls.map(([args]) => args);
+    expect(updates[0]).toEqual({ where: { id: "walkin" }, data: { email: null } });
+    expect(updates[1].data.email).toBe("malee@example.com");
+  });
+
+  it("keeps the kept record's values when both have them, and combines different notes", async () => {
+    const { prisma, customers } = setupMerge(
+      customerRow({ id: "kept", email: "a@x.com", lineId: "kept.line", notes: "VIP" }),
+      customerRow({ id: "walkin", email: "b@x.com", lineId: "other.line", notes: "Prefers mornings" }),
+    );
+
+    await customers.merge(advisor, "kept", "walkin");
+
+    expect(prisma.customer.update).toHaveBeenCalledTimes(1);
+    expect(prisma.customer.update.mock.calls[0][0].data).toEqual({ notes: "VIP\n\nPrefers mornings" });
+  });
+
+  it("doesn't duplicate identical notes or write when nothing needs filling", async () => {
+    const { prisma, customers } = setupMerge(
+      customerRow({ id: "kept", lineId: "same", notes: "Same note" }),
+      customerRow({ id: "walkin", lineId: "same", notes: "Same note" }),
+    );
+
+    await customers.merge(advisor, "kept", "walkin");
+
+    expect(prisma.customer.update).not.toHaveBeenCalled();
+    expect(prisma.customer.delete).toHaveBeenCalled();
+  });
+
+  it("works when the merged record has no vehicles", async () => {
+    const { prisma, customers } = setupMerge(portal(), walkIn());
+    prisma.vehicle.updateMany.mockResolvedValue({ count: 0 });
+
+    await customers.merge(advisor, "kept", "walkin");
+
+    expect(prisma.auditLog.create.mock.calls[0][0].data.changes.vehiclesMoved).toBe(0);
+  });
+
+  it("refuses different phone numbers", async () => {
+    const { prisma, customers } = setupMerge(portal(), customerRow({ id: "walkin", phone: "+66811111111" }));
+
+    await expect(customers.merge(advisor, "kept", "walkin")).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses when both records have online accounts", async () => {
+    const { customers } = setupMerge(portal(), customerRow({ id: "walkin", userId: "u-2" }));
+
+    await expect(customers.merge(advisor, "kept", "walkin")).rejects.toThrow(ConflictException);
+  });
+
+  it("refuses to keep the record without a login when the other one has it", async () => {
+    const { customers } = setupMerge(walkIn(), customerRow({ id: "kept", userId: "u-1" }));
+
+    await expect(customers.merge(advisor, "walkin", "kept")).rejects.toThrow("Keep the record with the online account");
+  });
+
+  it("refuses merging a record with itself and unknown records", async () => {
+    const { customers } = setupMerge(portal(), walkIn());
+
+    await expect(customers.merge(advisor, "kept", "kept")).rejects.toThrow(BadRequestException);
+    await expect(customers.merge(advisor, "kept", "ghost")).rejects.toThrow(NotFoundException);
+  });
+});

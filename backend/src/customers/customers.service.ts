@@ -140,6 +140,69 @@ export class CustomersService {
     return this.update(user, user.customerId, input);
   }
 
+  /**
+   * Merges `sourceId` into `targetId` (the record kept), then removes `sourceId`.
+   * Rules (CLAUDE.md "Domain rules"): same phone only; at most one portal login, and the
+   * login holder must be the one kept; kept values win, blanks are filled, notes combined.
+   */
+  async merge(actor: AuthUser, targetId: string, sourceId: string): Promise<CustomerDetail> {
+    if (targetId === sourceId) {
+      throw new BadRequestException("A customer can't be merged with itself");
+    }
+    const [target, source] = await Promise.all([
+      this.prisma.customer.findUnique({ where: { id: targetId } }),
+      this.prisma.customer.findUnique({ where: { id: sourceId } }),
+    ]);
+    if (!target || !source) throw new NotFoundException("Customer not found");
+
+    if (target.phone !== source.phone) {
+      throw new BadRequestException("Only customers with the same phone number can be merged");
+    }
+    if (target.userId && source.userId) {
+      throw new ConflictException(
+        "Both records have online accounts, so they may be different people sharing a phone (e.g. family members). These can't be merged.",
+      );
+    }
+    if (source.userId) {
+      throw new BadRequestException("Keep the record with the online account and merge the other one into it");
+    }
+
+    const filled: Prisma.CustomerUpdateInput = {};
+    if (!target.email && source.email) filled.email = source.email;
+    if (!target.lineId && source.lineId) filled.lineId = source.lineId;
+    const notes = [target.notes, source.notes].filter((note): note is string => Boolean(note?.trim()));
+    const combinedNotes = [...new Set(notes)].join("\n\n") || null;
+    if (combinedNotes !== target.notes) filled.notes = combinedNotes;
+
+    await this.prisma.$transaction(async (tx) => {
+      // Emails are unique: free the source's email before the target takes it.
+      if (filled.email) await tx.customer.update({ where: { id: sourceId }, data: { email: null } });
+
+      const vehicles = await tx.vehicle.updateMany({ where: { customerId: sourceId }, data: { customerId: targetId } });
+      const appointments = await tx.appointment.updateMany({
+        where: { customerId: sourceId },
+        data: { customerId: targetId },
+      });
+      if (Object.keys(filled).length > 0) await tx.customer.update({ where: { id: targetId }, data: filled });
+      await tx.customer.delete({ where: { id: sourceId } });
+
+      await writeAudit(tx, {
+        actorId: actor.id,
+        action: "customer.merged",
+        entity: "Customer",
+        entityId: targetId,
+        changes: {
+          mergedFrom: { id: source.id, name: `${source.firstName} ${source.lastName}`, phone: source.phone, email: source.email },
+          vehiclesMoved: vehicles.count,
+          appointmentsMoved: appointments.count,
+          fieldsFilled: Object.keys(filled),
+        },
+      });
+    });
+
+    return this.findOne(targetId);
+  }
+
   private async summary(id: string): Promise<CustomerSummary> {
     const customer = await this.prisma.customer.findUniqueOrThrow({ where: { id }, include: summaryInclude });
     return toSummary(customer);

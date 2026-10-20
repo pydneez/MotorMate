@@ -98,3 +98,14 @@ export type CustomerDuplicates = {
   /** Email is unique, so a match here blocks saving. */
   byEmail: CustomerSummary | null;
 };
+
+/**
+ * POST /customers/:id/merge — moves everything from `sourceId` into the customer in the URL
+ * (the one kept), then removes `sourceId`. Only records with the same phone, at most one of
+ * which has a portal login; the login holder must be the one kept. See CLAUDE.md.
+ */
+export const MergeCustomerSchema = z.object({
+  sourceId: z.string().min(1, "Choose the customer to merge"),
+});
+
+export type MergeCustomerInput = z.input<typeof MergeCustomerSchema>;

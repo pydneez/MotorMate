@@ -11,6 +11,8 @@ function model() {
     count: jest.fn().mockResolvedValue(0),
     create: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    delete: jest.fn(),
   };
 }
 
@@ -23,6 +25,7 @@ export function createPrismaMock() {
     user: model(),
     customer: model(),
     vehicle: model(),
+    appointment: model(),
     auditLog: { create: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn(),
   };
