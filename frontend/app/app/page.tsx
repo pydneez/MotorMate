@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { Calendar, Car } from "lucide-react";
-import type { AuthUser, Paginated, VehicleSummary } from "@motormate/types";
+import type { AuthUser, InventorySummary, Paginated, VehicleSummary } from "@motormate/types";
 import { authOptions } from "@/auth";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
 import { serverGet } from "@/lib/server";
@@ -13,28 +13,45 @@ function greeting(): string {
   return "Good evening";
 }
 
-/** Placeholder stat card — values arrive as each module is built. */
-function StatCard({ label, note }: { label: string; note: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+/**
+ * Dashboard stat. Cards whose module isn't built yet show "—" and the module name; cards with
+ * a value link to the page that explains it.
+ */
+function StatCard({ label, note, value, href, alert }: { label: string; note: string; value?: number; href?: string; alert?: boolean }) {
+  const body = (
+    <>
       <p className="text-sm font-medium text-slate-500">{label}</p>
-      <p className="mt-2 text-3xl font-semibold text-slate-300">—</p>
+      <p className={`mt-2 text-3xl font-semibold ${value === undefined ? "text-slate-300" : alert ? "text-red-700" : "text-slate-900"}`}>
+        {value ?? "—"}
+      </p>
       <p className="mt-1 text-xs text-slate-400">{note}</p>
-    </div>
+    </>
+  );
+  const className = "block rounded-lg border border-slate-200 bg-white p-5 shadow-sm";
+  return href ? (
+    <Link href={href} className={`${className} transition hover:border-blue-300 hover:shadow`}>
+      {body}
+    </Link>
+  ) : (
+    <div className={className}>{body}</div>
   );
 }
 
-const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, { label: string; note: string }[]> = {
+type CardSpec = { label: string; note: string; source?: "lowStock" };
+
+const LOW_STOCK_CARD: CardSpec = { label: "Low-stock items", note: "At or below reorder level", source: "lowStock" };
+
+const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, CardSpec[]> = {
   ADMIN: [
     { label: "Revenue this month", note: "Reports module" },
     { label: "Open work orders", note: "Work orders module" },
-    { label: "Low-stock items", note: "Inventory module" },
+    LOW_STOCK_CARD,
     { label: "Active staff", note: "Staff module" },
   ],
   ADVISOR: [
     { label: "Open work orders", note: "Work orders module" },
     { label: "Today's appointments", note: "Appointments module" },
-    { label: "Low-stock items", note: "Inventory module" },
+    LOW_STOCK_CARD,
   ],
   MECHANIC: [
     { label: "My assigned jobs", note: "Work orders module" },
@@ -89,6 +106,8 @@ export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session) return null;
   const { user } = session;
+  const inventory =
+    user.role === "ADMIN" || user.role === "ADVISOR" ? await serverGet<InventorySummary>("/inventory/summary") : null;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -103,9 +122,19 @@ export default async function DashboardPage() {
           <CustomerDashboard />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {STAFF_CARDS[user.role].map((card) => (
-              <StatCard key={card.label} {...card} />
-            ))}
+            {STAFF_CARDS[user.role].map(({ source, ...card }) =>
+              source === "lowStock" && inventory ? (
+                <StatCard
+                  key={card.label}
+                  {...card}
+                  value={inventory.lowStockCount}
+                  alert={inventory.lowStockCount > 0}
+                  href="/app/inventory?lowStock=true"
+                />
+              ) : (
+                <StatCard key={card.label} {...card} />
+              ),
+            )}
           </div>
         )}
       </div>
