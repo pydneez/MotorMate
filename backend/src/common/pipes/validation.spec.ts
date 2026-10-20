@@ -3,13 +3,17 @@ import type { ZodTypeAny } from "zod";
 import {
   ChangePasswordSchema,
   CreateCustomerSchema,
+  CreateInventoryItemSchema,
   CreateStaffSchema,
   CreateVehicleSchema,
   ListQuerySchema,
   MileageCorrectionSchema,
+  ReceiveStockSchema,
   RegisterSchema,
   ResetPasswordSchema,
+  StocktakeSchema,
   UpdateCustomerSchema,
+  UpdateInventoryItemSchema,
   UpdateOwnCustomerSchema,
   UpdateStaffSchema,
   UpdateVehicleSchema,
@@ -249,6 +253,10 @@ describe("form schemas accept their own output (browser → API round trip)", ()
     ["UpdateStaffSchema", UpdateStaffSchema, { firstName: "A", lastName: "B", role: "ADVISOR" }],
     ["ResetPasswordSchema", ResetPasswordSchema, { temporaryPassword: "temp-pass-1" }],
     ["ChangePasswordSchema", ChangePasswordSchema, { currentPassword: "password123", newPassword: "new-password-1" }],
+    ["CreateInventoryItemSchema", CreateInventoryItemSchema, { sku: " flt-cab ", name: "Cabin filter", category: "Filters", unitCost: "150", unitPrice: "290.50", supplier: "", reorderLevel: "5", openingQuantity: "0" }],
+    ["UpdateInventoryItemSchema (supplier cleared)", UpdateInventoryItemSchema, { sku: "FLT-CAB", name: "Cabin filter", category: "Filters", unitCost: "150", unitPrice: "290.5", supplier: "", reorderLevel: "5" }],
+    ["ReceiveStockSchema", ReceiveStockSchema, { quantity: "10", note: "" }],
+    ["StocktakeSchema", StocktakeSchema, { countedQuantity: "0", reason: " Damaged " }],
   ];
 
   it.each(cases)("%s", (_name, schema, formInput) => {
@@ -270,5 +278,43 @@ describe("form schemas accept their own output (browser → API round trip)", ()
 
   it("still rejects a LINE ID that is too long", () => {
     expect(fieldErrors(UpdateOwnCustomerSchema, { lineId: "x".repeat(51) }).lineId).toBeDefined();
+  });
+});
+
+describe("inventory rules", () => {
+  const validItem = { sku: "flt-cab", name: "Cabin filter", category: "Filters", unitCost: "150", unitPrice: "290", reorderLevel: "5", openingQuantity: "3" };
+
+  it("uppercases the SKU and turns form strings into numbers", () => {
+    expect(validate(CreateInventoryItemSchema, validItem)).toEqual(
+      expect.objectContaining({ sku: "FLT-CAB", unitCost: 150, unitPrice: 290, reorderLevel: 5, openingQuantity: 3 }),
+    );
+  });
+
+  it.each([["ab cd"], ["x"], ["FLT_CAB"]])("rejects the SKU %p", (sku) => {
+    expect(fieldErrors(CreateInventoryItemSchema, { ...validItem, sku }).sku).toBeDefined();
+  });
+
+  it("rejects 3 decimals, negative money and a blank price", () => {
+    const errors = fieldErrors(CreateInventoryItemSchema, { ...validItem, unitCost: "1.234", unitPrice: "" });
+    expect(errors.unitCost).toEqual(["Cost can have at most 2 decimals"]);
+    expect(errors.unitPrice).toEqual(["Price is required"]);
+    expect(fieldErrors(CreateInventoryItemSchema, { ...validItem, unitCost: "-1" }).unitCost).toEqual(["Cost can't be negative"]);
+  });
+
+  it("allows a price below cost (the form only warns)", () => {
+    expect(() => validate(CreateInventoryItemSchema, { ...validItem, unitCost: "300", unitPrice: "200" })).not.toThrow();
+  });
+
+  it("refuses editing quantity directly, and opening quantity after creation", () => {
+    expect(() => validate(UpdateInventoryItemSchema, { quantityOnHand: 5 })).toThrow(BadRequestException);
+    expect(() => validate(UpdateInventoryItemSchema, { openingQuantity: 5 })).toThrow(BadRequestException);
+  });
+
+  it("requires a positive received quantity and a stocktake reason", () => {
+    expect(fieldErrors(ReceiveStockSchema, { quantity: "0" }).quantity).toEqual(["Quantity must be at least 1"]);
+    expect(fieldErrors(StocktakeSchema, { countedQuantity: "2", reason: "" }).reason).toEqual(["Give a reason for the difference"]);
+    expect(fieldErrors(StocktakeSchema, { countedQuantity: "", reason: "Count" }).countedQuantity).toEqual([
+      "Counted quantity is required",
+    ]);
   });
 });
