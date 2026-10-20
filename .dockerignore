@@ -1,0 +1,23 @@
+# Docker build context is the repo root (see backend/Dockerfile). Keep it small and
+# never send secrets or local builds into an image.
+
+# Secrets — .env files must never end up in an image
+.env
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies and build output are recreated inside the image
+**/node_modules
+**/dist
+**/.next
+**/*.tsbuildinfo
+
+# Not needed by the backend image
+frontend
+.git
+.claude
+**/*.md
+**/test
+**/*.spec.ts
+docker-compose.yml
