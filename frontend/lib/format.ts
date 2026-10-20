@@ -34,3 +34,15 @@ export function fullName(person: { firstName: string; lastName: string }): strin
 export function shortVin(vin: string): string {
   return `…${vin.slice(-6)}`;
 }
+
+/** 20 Oct 14:02 (Bangkok time) */
+export function formatDateTime(value: string | Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: TIME_ZONE,
+  }).format(new Date(value));
+}
