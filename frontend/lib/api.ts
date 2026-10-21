@@ -1,4 +1,20 @@
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+/**
+ * Base URL of the NestJS backend (routes live under /v1).
+ *
+ * The browser uses NEXT_PUBLIC_API_URL, baked in at build time: `/v1` on AWS, where the site
+ * and the API share one address. The Next.js server (server components, NextAuth's
+ * authorize()) can't fetch a relative URL, so on AWS it calls the load balancer directly via
+ * API_INTERNAL_URL, read at runtime — one image then works in every AWS account.
+ */
+export function apiBaseUrl(isServer = typeof window === "undefined"): string {
+  const publicUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080/v1";
+  if (!isServer) return publicUrl;
+  const serverUrl = process.env.API_INTERNAL_URL ?? publicUrl;
+  if (serverUrl.startsWith("/")) {
+    throw new Error("API_INTERNAL_URL must be set when NEXT_PUBLIC_API_URL is a relative path");
+  }
+  return serverUrl;
+}
 
 /** Error thrown for non-2xx API responses; `fieldErrors` comes from the backend's ZodValidationPipe. */
 export class ApiError extends Error {
@@ -21,7 +37,7 @@ type ApiOptions = Omit<RequestInit, "body"> & {
 
 /** Calls the NestJS backend, attaching the bearer token and JSON-encoding the body. */
 export async function api<T>(path: string, { token, body, headers, ...init }: ApiOptions = {}): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
     headers: {
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
