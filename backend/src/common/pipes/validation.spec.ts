@@ -1,8 +1,15 @@
 import { BadRequestException } from "@nestjs/common";
 import type { ZodTypeAny } from "zod";
 import {
+  AddLabourSchema,
+  AddPartSchema,
+  allowedNextStatuses,
+  calculateTotals,
   ChangePasswordSchema,
   CreateCustomerSchema,
+  CreateWorkOrderSchema,
+  parseWorkOrderNumber,
+  WorkOrderListQuerySchema,
   CreateInventoryItemSchema,
   CreateStaffSchema,
   CreateVehicleSchema,
@@ -316,5 +323,64 @@ describe("inventory rules", () => {
     expect(fieldErrors(StocktakeSchema, { countedQuantity: "", reason: "Count" }).countedQuantity).toEqual([
       "Counted quantity is required",
     ]);
+  });
+});
+
+describe("work order rules (shared with the frontend)", () => {
+  it("gives advisors every next status and mechanics only their own job's non-final ones", () => {
+    expect(allowedNextStatuses("QUALITY_CHECK", { role: "ADVISOR", isAssignedMechanic: false })).toEqual([
+      "IN_PROGRESS",
+      "COMPLETED",
+      "CANCELLED",
+    ]);
+    expect(allowedNextStatuses("QUALITY_CHECK", { role: "MECHANIC", isAssignedMechanic: true })).toEqual(["IN_PROGRESS"]);
+    expect(allowedNextStatuses("DIAGNOSING", { role: "MECHANIC", isAssignedMechanic: false })).toEqual([]);
+    expect(allowedNextStatuses("IN_PROGRESS", { role: "CUSTOMER", isAssignedMechanic: true })).toEqual([]);
+    expect(allowedNextStatuses("COMPLETED", { role: "ADMIN", isAssignedMechanic: false })).toEqual([]);
+  });
+
+  it("computes totals in satang with VAT rounded half-up", () => {
+    expect(calculateTotals([500], [{ quantity: 1, unitPrice: 950 }, { quantity: 1, unitPrice: 220 }])).toEqual({
+      labour: 500,
+      parts: 1170,
+      subtotal: 1670,
+      vatRate: 0.07,
+      vat: 116.9,
+      total: 1786.9,
+    });
+    expect(calculateTotals([0.1, 0.2], [{ quantity: 3, unitPrice: 0.1 }]).subtotal).toBe(0.6);
+    expect(calculateTotals([0.5], []).vat).toBe(0.04); // 3.5 satang rounds up
+    expect(calculateTotals([], [])).toEqual(expect.objectContaining({ subtotal: 0, vat: 0, total: 0 }));
+  });
+
+  it.each([
+    ["WO-0007", 7],
+    ["wo7", 7],
+    ["007", 7],
+    ["abc", null],
+    ["WO-", null],
+  ])("reads %p as work order number %p", (input, expected) => {
+    expect(parseWorkOrderNumber(input)).toBe(expected);
+  });
+
+  it("validates check-in, parts and labour input", () => {
+    expect(fieldErrors(CreateWorkOrderSchema, { vehicleId: "", mileageIn: "", complaint: " " })).toEqual(
+      expect.objectContaining({ vehicleId: expect.any(Array), mileageIn: ["Mileage is required"], complaint: expect.any(Array) }),
+    );
+    expect(validate(CreateWorkOrderSchema, { vehicleId: "v", mileageIn: "45000", complaint: "x", mechanicId: "" })).toEqual({
+      vehicleId: "v",
+      mileageIn: 45000,
+      complaint: "x",
+    });
+    expect(fieldErrors(AddPartSchema, { inventoryItemId: "a", quantity: "0" }).quantity).toEqual(["Quantity must be at least 1"]);
+    expect(fieldErrors(AddLabourSchema, { description: "x", laborCost: "1.234" }).laborCost).toBeDefined();
+  });
+
+  it("accepts the list filters and rejects bad dates or statuses", () => {
+    expect(validate(WorkOrderListQuerySchema, { status: "open", mechanic: "me", from: "2026-10-20" })).toEqual(
+      expect.objectContaining({ status: "open", mechanic: "me", from: "2026-10-20" }),
+    );
+    expect(() => validate(WorkOrderListQuerySchema, { from: "20/10/2026" })).toThrow(BadRequestException);
+    expect(() => validate(WorkOrderListQuerySchema, { status: "DONE" })).toThrow(BadRequestException);
   });
 });
