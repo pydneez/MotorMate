@@ -311,6 +311,10 @@ The build is done in numbered steps (Step 1 = schema + auth, Step 2 = ...). For 
    deviated from the plan. Then it hands over the `git add` / `git commit` commands with a
    Conventional Commits message. **The user commits and pushes themselves**; Claude does
    not commit unless asked.
+5. **PR description.** Every report ends with a ready-to-paste PR title and description
+   (in a fenced `markdown` block) for the step's branch: summary, what's included, tests
+   and browser checks, what's not included, the base branch if it's stacked, and the Jira
+   tickets.
 
 ## Local development
 
