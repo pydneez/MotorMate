@@ -6,6 +6,7 @@ import {
   ChangeWorkOrderStatusSchema,
   CreateWorkOrderSchema,
   UpdateWorkOrderDetailsSchema,
+  WalkInCheckInSchema,
   WorkOrderListQuerySchema,
   type AuthUser,
   type MechanicOption,
@@ -26,6 +27,7 @@ import {
   type ChangeWorkOrderStatusData,
   type CreateWorkOrderData,
   type UpdateWorkOrderDetailsData,
+  type WalkInCheckInData,
 } from "./work-orders.service";
 
 /**
@@ -55,6 +57,16 @@ export class WorkOrdersController {
   @Roles("ADMIN", "ADVISOR")
   mechanics(): Promise<MechanicOption[]> {
     return this.workOrders.mechanics();
+  }
+
+  /** New (or existing) customer + new vehicle + work order in one go, for walk-ins. */
+  @Post("walk-in")
+  @Roles("ADMIN", "ADVISOR")
+  walkIn(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodValidationPipe(WalkInCheckInSchema)) body: WalkInCheckInData,
+  ): Promise<WorkOrderDetail> {
+    return this.workOrders.walkIn(user, body);
   }
 
   @Get(":id")

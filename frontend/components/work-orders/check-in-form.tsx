@@ -76,10 +76,28 @@ function VehiclePicker({ onPick }: { onPick: (vehicle: VehicleSummary) => void }
       )}
       {query.trim().length >= 2 && results.length === 0 && (
         <p className="mt-1 text-xs text-slate-500">
-          No match. New car? <Link href="/app/customers" className="text-blue-700 underline">Add it from the customer&apos;s page</Link> first.
+          No match.{" "}
+          <Link href="/app/work-orders/new?mode=walk-in" className="text-blue-700 underline">
+            Register a new customer &amp; vehicle
+          </Link>{" "}
+          and check in at once.
         </p>
       )}
     </div>
+  );
+}
+
+/** Optional mechanic for a new job, showing each one's open workload. */
+export function MechanicSelect({ mechanics, error }: { mechanics: MechanicOption[]; error?: string }) {
+  return (
+    <SelectField label="Mechanic (optional)" name="mechanicId" defaultValue="" error={error}>
+      <option value="">Assign later</option>
+      {mechanics.map((mechanic) => (
+        <option key={mechanic.id} value={mechanic.id}>
+          {mechanic.name} ({mechanic.openJobs} open job{mechanic.openJobs === 1 ? "" : "s"})
+        </option>
+      ))}
+    </SelectField>
   );
 }
 
@@ -150,14 +168,7 @@ export function CheckInForm({ initialVehicle, mechanics }: { initialVehicle: Veh
         error={fieldErrors.mileageIn}
       />
       <TextAreaField label="Customer's complaint" name="complaint" placeholder="e.g. Brakes squeal when stopping" error={fieldErrors.complaint} />
-      <SelectField label="Mechanic (optional)" name="mechanicId" defaultValue="" error={fieldErrors.mechanicId}>
-        <option value="">Assign later</option>
-        {mechanics.map((mechanic) => (
-          <option key={mechanic.id} value={mechanic.id}>
-            {mechanic.name} ({mechanic.openJobs} open job{mechanic.openJobs === 1 ? "" : "s"})
-          </option>
-        ))}
-      </SelectField>
+      <MechanicSelect mechanics={mechanics} error={fieldErrors.mechanicId} />
 
       {error && (
         <Alert>

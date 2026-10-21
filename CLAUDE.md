@@ -192,6 +192,10 @@ schema before calling the API. List search and paging live in the URL.
     moves. Other mechanics can view. Customers see status on their vehicle page only.
   - Check-in: mileage must be ≥ the vehicle's recorded mileage, and a vehicle can have only
     one open work order. Completed/cancelled jobs can't be changed at all.
+  - Walk-in check-in (`POST /work-orders/walk-in`, page `/app/work-orders/new?mode=walk-in`,
+    advisor/admin): new or existing customer (found by phone) + new vehicle + work order in
+    **one transaction** — a taken VIN or email creates nothing. The new vehicle's mileage is
+    the check-in mileage.
   - Parts used take stock immediately (`StockService`, reason `WORK_ORDER`) at the item's
     price at that moment; removing a part or cancelling the job puts the stock back.
   - Totals use `calculateTotals()` in whole satang (VAT 7%, rounded half-up).
@@ -357,6 +361,27 @@ Values that must agree **across files**:
   RDS `db.t3.micro` with automated backups and encryption at rest.
 - No custom domain → Route 53 / ACM-with-own-domain are "production plan" items in the
   final document; HTTPS comes from Amplify's or CloudFront's default certificate.
+
+## Parked ideas (nice-to-have, not scheduled)
+
+Agreed as good ideas, deliberately not built so the MVP stays on schedule. Don't build
+without the team deciding first.
+
+- **Labour price list (hybrid pricing).** Today labour lines are free-typed amounts entered
+  by staff or the assigned mechanic (common in small garages, but anyone can type any
+  number; the advisor's QC sign-off is the only check). Proposed model:
+  - **Routine maintenance → fixed price per job** from an admin-maintained list (oil/fluid
+    changes, brake pads, battery, tyre rotation…). Picking the job fills the price; the
+    price is snapshotted on the line like parts.
+  - **Unpredictable repairs → hours × shop hourly rate** (engine diagnostics, electrical
+    troubleshooting, oil leaks, suspension rebuilds), entered as an **estimate** the
+    customer approves before work starts; actual hours recorded; re-approval if it runs
+    over. Often with a fixed diagnostic fee.
+  - Mechanics can only pick from the list; advisors/admins can add custom lines or override
+    a price with a required reason (audited).
+  - Data: one price list (`type: FIXED | HOURLY`, price or standard hours), a shop
+    hourly-rate setting, and labour lines linking to their price-list entry with
+    estimated/actual hours.
 
 ## Explicitly out of scope for now
 

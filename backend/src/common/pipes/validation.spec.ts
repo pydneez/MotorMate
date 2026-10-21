@@ -24,6 +24,7 @@ import {
   UpdateOwnCustomerSchema,
   UpdateStaffSchema,
   UpdateVehicleSchema,
+  WalkInCheckInSchema,
 } from "@motormate/types";
 import { searchTokens } from "../utils/pagination";
 import { phoneSearchFragment } from "../utils/phone-search";
@@ -264,6 +265,8 @@ describe("form schemas accept their own output (browser → API round trip)", ()
     ["UpdateInventoryItemSchema (supplier cleared)", UpdateInventoryItemSchema, { sku: "FLT-CAB", name: "Cabin filter", category: "Filters", unitCost: "150", unitPrice: "290.5", supplier: "", reorderLevel: "5" }],
     ["ReceiveStockSchema", ReceiveStockSchema, { quantity: "10", note: "" }],
     ["StocktakeSchema", StocktakeSchema, { countedQuantity: "0", reason: " Damaged " }],
+    ["WalkInCheckInSchema (new customer)", WalkInCheckInSchema, { customerId: "", firstName: "A", lastName: "B", phone: "081 234 5678", email: "", lineId: "", ...validVehicle, color: "", mileageIn: "45000", complaint: "Noise", mechanicId: "" }],
+    ["WalkInCheckInSchema (existing customer)", WalkInCheckInSchema, { customerId: "cust-1", firstName: "", lastName: "", phone: "", email: "", lineId: "", ...validVehicle, color: "", mileageIn: "45000", complaint: "Noise", mechanicId: "" }],
   ];
 
   it.each(cases)("%s", (_name, schema, formInput) => {
