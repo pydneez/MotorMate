@@ -16,7 +16,7 @@ import { formValues, useApi, useFormSubmit } from "@/lib/client";
 import { fullName } from "@/lib/format";
 
 /** Provinces in Thai alphabetical order for the dropdown. */
-const PROVINCES = [...THAI_PROVINCES].sort((a, b) => a.localeCompare(b, "th"));
+export const PROVINCES = [...THAI_PROVINCES].sort((a, b) => a.localeCompare(b, "th"));
 
 /**
  * Create / edit vehicle. A taken VIN blocks saving (it's unique); the same plate in the same
