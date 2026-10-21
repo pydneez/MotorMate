@@ -45,7 +45,8 @@ export type ServiceHistoryEntry = {
   workPerformed: string | null;
   mechanicName: string | null;
   parts: { name: string; quantity: number }[];
-  /** Invoice total in THB, if invoiced. */
+  /** Invoice id and total in THB, if invoiced. */
+  invoiceId: string | null;
   total: number | null;
   recommendations: { description: string; dueMileage: number | null; dueDate: string | null }[];
 };

@@ -3,6 +3,7 @@ import { clearableText, ListQuerySchema, wholeNumber } from "./common";
 import { CreateCustomerSchema } from "./customer";
 import { money } from "./inventory";
 import { CreateVehicleSchema } from "./vehicle";
+import type { InvoiceStatus } from "./invoice";
 import type { Role } from "./role";
 
 /** Shop-visit lifecycle from the kickoff report, plus CANCELLED. */
@@ -180,6 +181,38 @@ export const AddPartSchema = z.object({
 
 export type AddPartInput = z.input<typeof AddPartSchema>;
 
+/** A blank form field → undefined; anything else must be a positive whole number. */
+const optionalPositiveNumber = (label: string) =>
+  z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : Number(value)),
+    z
+      .number({ invalid_type_error: `${label} must be a number` })
+      .int(`${label} must be a whole number`)
+      .positive(`${label} must be above 0`)
+      .optional(),
+  );
+
+/**
+ * Future service, e.g. "Brake fluid change at 60,000 km". At least one of due mileage /
+ * due date; the reminder job reads these later.
+ */
+export const AddRecommendationSchema = z
+  .object({
+    description: z.string().trim().min(1, "Describe the service").max(200),
+    dueMileage: optionalPositiveNumber("Due mileage"),
+    /** yyyy-mm-dd */
+    dueDate: z
+      .union([z.literal(""), z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use yyyy-mm-dd")])
+      .optional()
+      .transform((value) => value || undefined),
+  })
+  .refine((data) => data.dueMileage !== undefined || data.dueDate !== undefined, {
+    message: "Give a due mileage, a due date, or both",
+    path: ["dueMileage"],
+  });
+
+export type AddRecommendationInput = z.input<typeof AddRecommendationSchema>;
+
 /** ?status=open|completed|cancelled|<STATUS>&mechanic=me|<id>&vehicleId=&from=&to=&q= */
 export const WorkOrderListQuerySchema = ListQuerySchema.extend({
   status: z
@@ -248,8 +281,19 @@ export type WorkOrderDetail = WorkOrderSummary & {
   labour: WorkOrderLabourLine[];
   parts: WorkOrderPartLine[];
   history: WorkOrderStatusEntry[];
+  recommendations: WorkOrderRecommendation[];
   /** Running totals while open; the invoice amounts once completed. */
   totals: WorkOrderTotals;
+  /** Set once the job is completed. */
+  invoice: { id: string; number: number; status: InvoiceStatus } | null;
+};
+
+export type WorkOrderRecommendation = {
+  id: string;
+  description: string;
+  dueMileage: number | null;
+  /** yyyy-mm-dd */
+  dueDate: string | null;
 };
 
 /** Counts for the dashboard cards. */
