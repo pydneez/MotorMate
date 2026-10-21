@@ -3,10 +3,9 @@ import { Prisma, PrismaClient, Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import * as bcrypt from "bcryptjs";
 import { normalizePlate, normalizeThaiPhone, VAT_RATE } from "@motormate/types";
+import { pgConfig } from "../src/prisma/pg-config";
 
-const prisma = new PrismaClient({
-  adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
-});
+const prisma = new PrismaClient({ adapter: new PrismaPg(pgConfig()) });
 
 /** Seed-only helper: the sample numbers below are known-valid, so fail loudly if not. */
 function phone(input: string): string {
