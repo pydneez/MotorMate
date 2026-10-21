@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Pencil } from "lucide-react";
+import { ClipboardList, Pencil } from "lucide-react";
 import type { VehicleDetail } from "@motormate/types";
 import { Card, LinkButton, PageHeader } from "@/components/ui";
 import { MileageCorrection } from "@/components/vehicles/mileage-correction";
@@ -36,6 +36,11 @@ export default async function VehiclePage({ params }: { params: { id: string } }
               </LinkButton>
             )}
             {user.role === "ADMIN" && <MileageCorrection vehicleId={vehicle.id} currentMileage={vehicle.mileage} />}
+            {canEdit && (
+              <LinkButton href={`/app/work-orders/new?vehicleId=${vehicle.id}`}>
+                <ClipboardList className="h-4 w-4" aria-hidden /> Check in
+              </LinkButton>
+            )}
           </>
         }
       />

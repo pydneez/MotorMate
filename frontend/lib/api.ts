@@ -6,6 +6,8 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly fieldErrors: Record<string, string[] | undefined> = {},
+    /** The full error body, for extra fields such as `workOrderId` on a conflict. */
+    readonly body: Record<string, unknown> | null = null,
   ) {
     super(message);
   }
@@ -33,7 +35,7 @@ export async function api<T>(path: string, { token, body, headers, ...init }: Ap
   const data = response.status === 204 ? null : await response.json().catch(() => null);
   if (!response.ok) {
     const message = typeof data?.message === "string" ? data.message : "Something went wrong";
-    throw new ApiError(message, response.status, data?.errors ?? {});
+    throw new ApiError(message, response.status, data?.errors ?? {}, data);
   }
   return data as T;
 }

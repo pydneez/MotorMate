@@ -13,6 +13,7 @@ function model() {
     update: jest.fn(),
     updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     delete: jest.fn(),
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
   };
 }
 
@@ -29,6 +30,10 @@ export function createPrismaMock() {
     // `fields` stands in for Prisma field references (e.g. quantityOnHand <= reorderLevel).
     inventoryItem: { ...model(), fields: { reorderLevel: "<ref:reorderLevel>" } },
     stockMovement: model(),
+    workOrder: model(),
+    workOrderStatusChange: model(),
+    serviceItem: model(),
+    partUsed: model(),
     auditLog: { create: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn(),
   };
