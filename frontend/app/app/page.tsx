@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { Calendar, Car } from "lucide-react";
-import type { AuthUser, InventorySummary, Paginated, VehicleSummary } from "@motormate/types";
+import type { AuthUser, InventorySummary, Paginated, VehicleSummary, WorkOrderCounts } from "@motormate/types";
 import { authOptions } from "@/auth";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
 import { serverGet } from "@/lib/server";
@@ -37,28 +37,46 @@ function StatCard({ label, note, value, href, alert }: { label: string; note: st
   );
 }
 
-type CardSpec = { label: string; note: string; source?: "lowStock" };
+type CardSource = "lowStock" | "openWorkOrders" | "myJobs" | "awaitingParts" | "qualityCheck";
+type CardSpec = { label: string; note: string; source?: CardSource };
 
 const LOW_STOCK_CARD: CardSpec = { label: "Low-stock items", note: "At or below reorder level", source: "lowStock" };
+const OPEN_WORK_ORDERS_CARD: CardSpec = { label: "Open work orders", note: "Checked in, not yet completed", source: "openWorkOrders" };
 
 const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, CardSpec[]> = {
   ADMIN: [
     { label: "Revenue this month", note: "Reports module" },
-    { label: "Open work orders", note: "Work orders module" },
+    OPEN_WORK_ORDERS_CARD,
     LOW_STOCK_CARD,
     { label: "Active staff", note: "Staff module" },
   ],
-  ADVISOR: [
-    { label: "Open work orders", note: "Work orders module" },
-    { label: "Today's appointments", note: "Appointments module" },
-    LOW_STOCK_CARD,
-  ],
+  ADVISOR: [OPEN_WORK_ORDERS_CARD, { label: "Today's appointments", note: "Appointments module" }, LOW_STOCK_CARD],
   MECHANIC: [
-    { label: "My assigned jobs", note: "Work orders module" },
-    { label: "Awaiting parts", note: "Work orders module" },
-    { label: "In quality check", note: "Work orders module" },
+    { label: "My assigned jobs", note: "Open jobs assigned to you", source: "myJobs" },
+    { label: "Awaiting parts", note: "All mechanics", source: "awaitingParts" },
+    { label: "In quality check", note: "All mechanics", source: "qualityCheck" },
   ],
 };
+
+/** The number, link and highlight for a card whose module is built. */
+function cardData(
+  source: CardSource,
+  inventory: InventorySummary | null,
+  workOrders: WorkOrderCounts | null,
+): { value: number; href: string; alert?: boolean } | null {
+  switch (source) {
+    case "lowStock":
+      return inventory && { value: inventory.lowStockCount, alert: inventory.lowStockCount > 0, href: "/app/inventory?lowStock=true" };
+    case "openWorkOrders":
+      return workOrders && { value: workOrders.open, href: "/app/work-orders" };
+    case "myJobs":
+      return workOrders && { value: workOrders.mine, href: "/app/work-orders" };
+    case "awaitingParts":
+      return workOrders && { value: workOrders.awaitingParts, href: "/app/work-orders?status=AWAITING_PARTS&mechanic=all" };
+    case "qualityCheck":
+      return workOrders && { value: workOrders.qualityCheck, href: "/app/work-orders?status=QUALITY_CHECK&mechanic=all" };
+  }
+}
 
 async function CustomerDashboard() {
   const vehicles = await serverGet<Paginated<VehicleSummary>>("/vehicles?pageSize=6");
@@ -106,8 +124,11 @@ export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session) return null;
   const { user } = session;
-  const inventory =
-    user.role === "ADMIN" || user.role === "ADVISOR" ? await serverGet<InventorySummary>("/inventory/summary") : null;
+  const isStaff = user.role === "ADMIN" || user.role === "ADVISOR";
+  const [inventory, workOrders] = await Promise.all([
+    isStaff ? serverGet<InventorySummary>("/inventory/summary") : Promise.resolve(null),
+    user.role !== "CUSTOMER" ? serverGet<WorkOrderCounts>("/work-orders/counts") : Promise.resolve(null),
+  ]);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -122,19 +143,10 @@ export default async function DashboardPage() {
           <CustomerDashboard />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {STAFF_CARDS[user.role].map(({ source, ...card }) =>
-              source === "lowStock" && inventory ? (
-                <StatCard
-                  key={card.label}
-                  {...card}
-                  value={inventory.lowStockCount}
-                  alert={inventory.lowStockCount > 0}
-                  href="/app/inventory?lowStock=true"
-                />
-              ) : (
-                <StatCard key={card.label} {...card} />
-              ),
-            )}
+            {STAFF_CARDS[user.role].map(({ source, ...card }) => {
+              const data = source ? cardData(source, inventory, workOrders) : null;
+              return <StatCard key={card.label} {...card} {...(data ?? {})} />;
+            })}
           </div>
         )}
       </div>
