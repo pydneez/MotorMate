@@ -14,7 +14,16 @@ const STATUS_LABEL: Record<WorkOrderStatus, string> = {
 };
 
 /** Vertical timeline of visits, newest first. */
-export function ServiceHistory({ history, linkWorkOrders }: { history: ServiceHistoryEntry[]; linkWorkOrders: boolean }) {
+export function ServiceHistory({
+  history,
+  linkWorkOrders,
+  linkInvoices,
+}: {
+  history: ServiceHistoryEntry[];
+  linkWorkOrders: boolean;
+  /** Staff and the vehicle's owner; mechanics can't open invoices. */
+  linkInvoices: boolean;
+}) {
   if (history.length === 0) {
     return <EmptyState title="No visits yet">Completed work orders will appear here.</EmptyState>;
   }
@@ -56,6 +65,14 @@ export function ServiceHistory({ history, linkWorkOrders }: { history: ServiceHi
               {entry.mechanicName && `Mechanic: ${entry.mechanicName}`}
               {entry.mechanicName && entry.total !== null && " · "}
               {entry.total !== null && `Total ${formatTHB(entry.total)}`}
+              {linkInvoices && entry.invoiceId && (
+                <>
+                  {" · "}
+                  <Link href={`/app/invoices/${entry.invoiceId}`} className="text-blue-700 hover:underline">
+                    Invoice →
+                  </Link>
+                </>
+              )}
             </p>
             {entry.recommendations.map((rec) => (
               <p key={rec.description} className="mt-1 text-sm text-blue-700">

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  formatInvoiceNumber,
   formatWorkOrderNumber,
   isClosedStatus,
   WORK_ORDER_STATUS_LABEL,
@@ -9,7 +10,8 @@ import {
 import { Card, PageHeader } from "@/components/ui";
 import { WorkOrderStatusBadge } from "@/components/work-orders/status-badge";
 import { MechanicAssign, StatusActions } from "@/components/work-orders/work-order-actions";
-import { LabourSection, NotesSection, PartsSection } from "@/components/work-orders/work-order-sections";
+import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
+import { LabourSection, NotesSection, PartsSection, RecommendationsSection } from "@/components/work-orders/work-order-sections";
 import { formatDateTime, formatKm, formatTHB } from "@/lib/format";
 import { requireSession, serverGet } from "@/lib/server";
 
@@ -68,9 +70,25 @@ export default async function WorkOrderPage({ params }: { params: { id: string }
           <NotesSection workOrder={workOrder} canEdit={canEdit} />
           <LabourSection workOrder={workOrder} canEdit={canEdit} />
           <PartsSection workOrder={workOrder} canEdit={canEdit} />
+          <RecommendationsSection workOrder={workOrder} canEdit={canEdit} />
         </div>
 
         <aside className="space-y-4">
+          {workOrder.invoice && (
+            <Card className="flex items-center justify-between gap-3 p-4 text-sm">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Invoice</p>
+                <p className="font-medium">
+                  {formatInvoiceNumber(workOrder.invoice.number)} <InvoiceStatusBadge status={workOrder.invoice.status} />
+                </p>
+              </div>
+              {isStaff && (
+                <Link href={`/app/invoices/${workOrder.invoice.id}`} className="font-medium text-blue-700 hover:underline">
+                  View →
+                </Link>
+              )}
+            </Card>
+          )}
           <Card className="space-y-3 p-4 text-sm">
             {isStaff && !closed ? (
               <MechanicAssign workOrder={workOrder} mechanics={mechanics} />
