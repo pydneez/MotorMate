@@ -22,6 +22,7 @@ import {
   type MechanicOption,
   type Paginated,
   type UpdateWorkOrderDetailsSchema,
+  type WalkInCheckInSchema,
   type WorkOrderCounts,
   type WorkOrderDetail,
   type WorkOrderListQuery,
@@ -41,6 +42,7 @@ export type AssignMechanicData = z.output<typeof AssignMechanicSchema>;
 export type ChangeWorkOrderStatusData = z.output<typeof ChangeWorkOrderStatusSchema>;
 export type AddLabourData = z.output<typeof AddLabourSchema>;
 export type AddPartData = z.output<typeof AddPartSchema>;
+export type WalkInCheckInData = z.output<typeof WalkInCheckInSchema>;
 
 const OPEN_STATUSES: WorkOrderStatus[] = ["CHECKED_IN", "DIAGNOSING", "AWAITING_PARTS", "IN_PROGRESS", "QUALITY_CHECK"];
 const isStaff = (user: AuthUser) => user.role === "ADMIN" || user.role === "ADVISOR";
@@ -183,6 +185,103 @@ export class WorkOrdersService {
       return workOrder.id;
     });
     return this.findOne(id);
+  }
+
+  /**
+   * Walk-in check-in: (new or existing) customer + new vehicle + work order, all in one
+   * transaction — if anything fails (VIN or email already taken), nothing is created.
+   * The new vehicle's recorded mileage is the mileage at check-in.
+   */
+  async walkIn(actor: AuthUser, input: WalkInCheckInData): Promise<WorkOrderDetail> {
+    if (input.customerId) {
+      const customer = await this.prisma.customer.findUnique({ where: { id: input.customerId }, select: { id: true } });
+      if (!customer) throw new NotFoundException("Customer not found");
+    } else if (input.email) {
+      const taken = await this.prisma.customer.findFirst({ where: { email: input.email }, select: { id: true } });
+      if (taken) {
+        throw new ConflictException({
+          message: "Another customer already uses this email",
+          errors: { email: ["Another customer already uses this email. Search for them by phone instead."] },
+          customerId: taken.id,
+        });
+      }
+    }
+    const vinOwner = await this.prisma.vehicle.findUnique({ where: { vin: input.vin }, select: { id: true } });
+    if (vinOwner) {
+      throw new ConflictException({
+        message: "This VIN is already registered to another vehicle",
+        errors: { vin: ["This VIN is already registered. Search for the vehicle instead."] },
+        vehicleId: vinOwner.id,
+      });
+    }
+    if (input.mechanicId) await this.assertMechanic(input.mechanicId);
+
+    try {
+      const id = await this.prisma.$transaction(async (tx) => {
+        let customerId = input.customerId;
+        if (!customerId) {
+          const customer = await tx.customer.create({
+            data: {
+              firstName: input.firstName!,
+              lastName: input.lastName!,
+              phone: input.phone!,
+              email: input.email,
+              lineId: input.lineId,
+            },
+          });
+          customerId = customer.id;
+          await writeAudit(tx, { actorId: actor.id, action: "customer.created", entity: "Customer", entityId: customer.id, changes: { via: "walk-in" } });
+        }
+
+        const vehicle = await tx.vehicle.create({
+          data: {
+            customerId,
+            vin: input.vin,
+            plate: input.plate,
+            plateNormalized: normalizePlate(input.plate),
+            province: input.province,
+            make: input.make,
+            model: input.model,
+            year: input.year,
+            color: input.color,
+            mileage: input.mileageIn,
+          },
+        });
+        await writeAudit(tx, {
+          actorId: actor.id,
+          action: "vehicle.created",
+          entity: "Vehicle",
+          entityId: vehicle.id,
+          changes: { customerId, vin: vehicle.vin, mileage: vehicle.mileage, via: "walk-in" },
+        });
+
+        const workOrder = await tx.workOrder.create({
+          data: {
+            vehicleId: vehicle.id,
+            mileageIn: input.mileageIn,
+            complaint: input.complaint,
+            mechanicId: input.mechanicId ?? null,
+            createdById: actor.id,
+            statusChanges: { create: { toStatus: "CHECKED_IN", changedById: actor.id } },
+          },
+        });
+        await writeAudit(tx, {
+          actorId: actor.id,
+          action: "workOrder.created",
+          entity: "WorkOrder",
+          entityId: workOrder.id,
+          changes: { vehicleId: vehicle.id, mileageIn: input.mileageIn, mechanicId: input.mechanicId ?? null, via: "walk-in" },
+        });
+        return workOrder.id;
+      });
+      return this.findOne(id);
+    } catch (error) {
+      // Someone registered the same VIN or email between our check and the insert.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException("This VIN or email was just registered by someone else. Please search for it and try again.");
+      }
+      throw error;
+    }
   }
 
   async assignMechanic(actor: AuthUser, id: string, input: AssignMechanicData): Promise<WorkOrderDetail> {

@@ -101,6 +101,106 @@ describe("WorkOrdersService.create (check-in)", () => {
   });
 });
 
+describe("WorkOrdersService.walkIn", () => {
+  const vehicleFields = {
+    vin: "1HGCM82633A004352",
+    plate: "1กข 1234",
+    province: "กรุงเทพมหานคร" as const,
+    make: "Honda",
+    model: "Civic",
+    year: 2018,
+    color: undefined,
+    mileageIn: 61000,
+    complaint: "Check engine light",
+    mechanicId: undefined,
+  };
+  const newCustomer = { firstName: "Mali", lastName: "Suksan", phone: "+66812345678", email: "mali@example.com", lineId: undefined };
+
+  function ready() {
+    const ctx = setup();
+    ctx.prisma.customer.findFirst.mockResolvedValue(null);
+    ctx.prisma.vehicle.findUnique.mockResolvedValue(null);
+    ctx.prisma.customer.create.mockResolvedValue({ id: "cust-new" });
+    ctx.prisma.vehicle.create.mockResolvedValue({ id: "veh-new", vin: vehicleFields.vin, mileage: 61000 });
+    ctx.prisma.workOrder.create.mockResolvedValue({ id: "wo-new" });
+    return ctx;
+  }
+
+  it("creates the customer, vehicle and work order in one transaction", async () => {
+    const { prisma, workOrders } = ready();
+
+    await workOrders.walkIn(advisor, { customerId: undefined, ...newCustomer, ...vehicleFields });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(prisma.customer.create.mock.calls[0][0].data).toEqual(expect.objectContaining({ firstName: "Mali", phone: "+66812345678" }));
+    expect(prisma.vehicle.create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ customerId: "cust-new", plateNormalized: "1กข1234", mileage: 61000 }),
+    );
+    expect(prisma.workOrder.create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({ vehicleId: "veh-new", mileageIn: 61000, statusChanges: { create: { toStatus: "CHECKED_IN", changedById: "advisor-1" } } }),
+    );
+    expect(prisma.auditLog.create.mock.calls.map((call) => call[0].data.action)).toEqual([
+      "customer.created",
+      "vehicle.created",
+      "workOrder.created",
+    ]);
+  });
+
+  it("adds the vehicle to an existing customer without creating one", async () => {
+    const { prisma, workOrders } = ready();
+    prisma.customer.findUnique.mockResolvedValue({ id: "cust-1" });
+
+    await workOrders.walkIn(advisor, { customerId: "cust-1", ...vehicleFields });
+
+    expect(prisma.customer.create).not.toHaveBeenCalled();
+    expect(prisma.vehicle.create.mock.calls[0][0].data.customerId).toBe("cust-1");
+  });
+
+  it("returns not found for an unknown customer", async () => {
+    const { prisma, workOrders } = ready();
+    prisma.customer.findUnique.mockResolvedValue(null);
+
+    await expect(workOrders.walkIn(advisor, { customerId: "nope", ...vehicleFields })).rejects.toThrow(NotFoundException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a VIN that's already registered, on the VIN field", async () => {
+    const { prisma, workOrders } = ready();
+    prisma.vehicle.findUnique.mockResolvedValue({ id: "veh-1" });
+
+    const error = await workOrders.walkIn(advisor, { ...newCustomer, ...vehicleFields }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(error.getResponse().errors.vin).toBeDefined();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses an email another customer uses, on the email field", async () => {
+    const { prisma, workOrders } = ready();
+    prisma.customer.findFirst.mockResolvedValue({ id: "cust-1" });
+
+    const error = await workOrders.walkIn(advisor, { ...newCustomer, ...vehicleFields }).catch((e) => e);
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect(error.getResponse().errors.email).toBeDefined();
+  });
+
+  it("only assigns active mechanics", async () => {
+    const { prisma, workOrders } = ready();
+    prisma.user.findUnique.mockResolvedValue({ role: "ADVISOR", isActive: true });
+
+    await expect(workOrders.walkIn(advisor, { ...newCustomer, ...vehicleFields, mechanicId: "x" })).rejects.toThrow(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("turns a race on the VIN into a conflict", async () => {
+    const { prisma, workOrders } = ready();
+    prisma.vehicle.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "7" }));
+
+    await expect(workOrders.walkIn(advisor, { ...newCustomer, ...vehicleFields })).rejects.toThrow(ConflictException);
+  });
+});
+
 describe("WorkOrdersService.changeStatus", () => {
   it("lets the assigned mechanic move their job forward and records history", async () => {
     const { prisma, workOrders } = setup();

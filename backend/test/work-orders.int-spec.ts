@@ -201,3 +201,54 @@ describe("work order lists and counts", () => {
     expect(await prisma.partUsed.count({ where: { inventoryItemId: ids.fluid } })).toBe(1);
   });
 });
+
+describe("walk-in check-in", () => {
+  const car = (vin: string, plate: string) => ({
+    vin,
+    plate,
+    province: "เชียงใหม่",
+    make: "Toyota",
+    model: "Yaris",
+    year: "2020",
+    mileageIn: "30500",
+    complaint: "Air-con blows warm",
+  });
+  const counts = async () => [await prisma.customer.count(), await prisma.vehicle.count(), await prisma.workOrder.count()];
+
+  it("creates the customer, the vehicle and the work order in one request", async () => {
+    const res = await api(tokens.advisor)
+      .post("/work-orders/walk-in", { firstName: "Mali", lastName: "Suksan", phone: "089 111 2222", ...car("JTDKB20U093000001", "5กก 5555") })
+      .expect(201);
+
+    expect(res.body).toEqual(expect.objectContaining({ status: "CHECKED_IN", mileageIn: 30500, customer: expect.objectContaining({ name: "Mali Suksan" }) }));
+    const vehicle = await prisma.vehicle.findUniqueOrThrow({ where: { id: res.body.vehicle.id }, include: { customer: true } });
+    expect(vehicle).toEqual(expect.objectContaining({ mileage: 30500, plateNormalized: "5กก5555" }));
+    expect(vehicle.customer.phone).toBe("+66891112222");
+  });
+
+  it("creates nothing when the VIN is already registered", async () => {
+    const before = await counts();
+
+    const res = await api(tokens.advisor)
+      .post("/work-orders/walk-in", { firstName: "Dup", lastName: "Vin", phone: "089 333 4444", ...car("MRHFC1650KP000001", "6กก 6666") })
+      .expect(409);
+
+    expect(res.body.errors.vin).toBeDefined();
+    expect(await counts()).toEqual(before);
+  });
+
+  it("adds a new car to an existing customer", async () => {
+    const jordan = await prisma.customer.findFirstOrThrow({ where: { email: "jordan@wo.test" } });
+
+    const res = await api(tokens.advisor)
+      .post("/work-orders/walk-in", { customerId: jordan.id, ...car("JTDKB20U093000002", "7กก 7777") })
+      .expect(201);
+
+    expect(res.body.customer.id).toBe(jordan.id);
+    expect(await prisma.customer.count({ where: { phone: "+66812345678" } })).toBe(1);
+  });
+
+  it("is for advisors and admins only", async () => {
+    await api(tokens.sam).post("/work-orders/walk-in", { firstName: "A", lastName: "B", phone: "0890000000", ...car("JTDKB20U093000003", "8กก 8888") }).expect(403);
+  });
+});
