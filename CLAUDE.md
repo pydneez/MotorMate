@@ -44,6 +44,7 @@ MotorMate/
     types/           Shared zod schemas, TS types, and Thai phone/plate helpers used by
                      both apps — compiled to CommonJS in dist/ (`pnpm --filter
                      @motormate/types build`; the root dev/typecheck scripts do it first)
+  infra/              AWS deployment: CloudFormation templates + scripts (see infra/README.md)
   docker-compose.yml  Local Postgres for development
   .env.example
   pnpm-workspace.yaml
@@ -351,7 +352,7 @@ npm run test:integration       # backend HTTP + real-Postgres tests (see below)
   motormate-backend .` and `docker build -f frontend/Dockerfile -t motormate-frontend .`
   (each has its own ignore file: root `.dockerignore` / `frontend/Dockerfile.dockerignore`).
   The backend applies migrations on start; the seed is compiled into it and runs with the
-  command `node dist-seed/seed.js`.
+  command `node dist-seed/prisma/seed.js`.
 
 Seeded logins (password `password123`): `admin@`, `advisor@`, `mechanic@motormate.example`,
 customer `jordan.lee@example.com`.
@@ -368,6 +369,9 @@ files themselves are gitignored, never committed):
 
 - `.env.example` (repo root) — Postgres/pgAdmin credentials, read by `docker-compose.yml`.
 - `backend/.env.example` — `DATABASE_URL` (Prisma), `JWT_SECRET`, `PORT`, `CORS_ORIGIN`.
+  On AWS only: `DATABASE_SSL_CA` — RDS requires SSL, so the pg driver verifies the server
+  against the RDS certificate bundle baked into the image (`pgConfig()` in
+  `backend/src/prisma/pg-config.ts`, used by PrismaService and the seed).
 - `frontend/.env.example` — `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_API_URL`
   (includes `/v1`), and `API_INTERNAL_URL` (AWS only — see "API address" above).
 
@@ -404,7 +408,17 @@ Values that must agree **across files**:
   An ALB needs its own security group allowing inbound 80 (not the default SG).
 - Secrets (`JWT_SECRET`, `NEXTAUTH_SECRET`, DB password) are hidden (`NoEcho`) stack
   parameters; Secrets Manager is the production plan in the final document.
-- CloudFormation templates and up/down scripts: Step 2b-2 (`infra/`).
+- **`infra/`** (guide: `infra/README.md`): three CloudFormation stacks —
+  `motormate-base` (VPC, public + isolated subnets, security groups, ECR, log groups;
+  kept), `motormate-db` (RDS PostgreSQL 16 `db.t3.micro`, encrypted, 7-day backups;
+  `--multi-az` in the demo account) and `motormate-app` (ALB, ECS cluster, API Gateway).
+  Scripts in `infra/scripts/` (Git Bash): `up.sh` (base → db + images in parallel → app →
+  seed), `down.sh` (deletes app + db — run at the end of every session), `smoke.sh`,
+  `status.sh`, `seed.sh`, `build-push.sh`, `nuke.sh --yes`. Secrets are generated per
+  account into `infra/.secrets/<account>.env` (gitignored). Images are tagged with the
+  git commit; re-running `up.sh` after a commit rolls out the new version.
+- Running cost ≈ $0.10/hour (3 Fargate tasks + public IPs, ALB, RDS). Prefer the AWS MCP
+  for ad-hoc AWS checks; the scripts themselves use the AWS CLI.
 
 ## Parked ideas (nice-to-have, not scheduled)
 
