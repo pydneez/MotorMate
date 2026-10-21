@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  MotorMate database: RDS PostgreSQL in the isolated subnets of motormate-base.
+  Deployed by infra/scripts/up.sh as stack "motormate-db"; the dev account deletes it
+  nightly (down.sh) and up.sh re-seeds it.
+
+Parameters:
+  DbPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    AllowedPattern: "[a-zA-Z0-9]+"
+    ConstraintDescription: letters and digits only (it is embedded in DATABASE_URL)
+  MultiAZ:
+    Type: String
+    AllowedValues: ["false", "true"]
+    Default: "false"
+    Description: true in the demo account (primary + standby), false in dev
+  InstanceClass:
+    Type: String
+    Default: db.t3.micro
+
+Resources:
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: MotorMate isolated database subnets
+      SubnetIds: !Split [",", !ImportValue motormate-DbSubnets]
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    # Dev data is only seed data, so no final snapshot when the stack is deleted.
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: motormate
+      Engine: postgres
+      EngineVersion: "16"
+      DBInstanceClass: !Ref InstanceClass
+      AllocatedStorage: "20"
+      StorageType: gp3
+      StorageEncrypted: true
+      MultiAZ: !Ref MultiAZ
+      DBName: motormate
+      MasterUsername: motormate
+      MasterUserPassword: !Ref DbPassword
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups: [!ImportValue motormate-DbSecurityGroup]
+      PubliclyAccessible: false
+      BackupRetentionPeriod: 7
+      DeleteAutomatedBackups: true
+      DeletionProtection: false
+      AutoMinorVersionUpgrade: true
+
+Outputs:
+  DbHost:
+    Value: !GetAtt Database.Endpoint.Address
+    Export: { Name: motormate-DbHost }
