@@ -31,7 +31,7 @@ export const serviceHistoryInclude = {
     include: {
       mechanic: { select: { firstName: true, lastName: true } },
       partsUsed: { include: { inventoryItem: { select: { name: true } } } },
-      invoice: { select: { total: true } },
+      invoice: { select: { id: true, total: true } },
       recommendations: { select: { description: true, dueMileage: true, dueDate: true } },
     },
   },
@@ -50,6 +50,7 @@ export function toServiceHistory(vehicle: VehicleWithHistory): ServiceHistoryEnt
     workPerformed: wo.workPerformed,
     mechanicName: wo.mechanic ? `${wo.mechanic.firstName} ${wo.mechanic.lastName}` : null,
     parts: wo.partsUsed.map((part) => ({ name: part.inventoryItem.name, quantity: part.quantity })),
+    invoiceId: wo.invoice?.id ?? null,
     total: wo.invoice ? wo.invoice.total.toNumber() : null,
     recommendations: wo.recommendations.map((rec) => ({
       description: rec.description,

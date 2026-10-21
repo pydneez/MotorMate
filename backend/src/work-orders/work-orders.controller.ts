@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post
 import {
   AddLabourSchema,
   AddPartSchema,
+  AddRecommendationSchema,
   AssignMechanicSchema,
   ChangeWorkOrderStatusSchema,
   CreateWorkOrderSchema,
@@ -23,6 +24,7 @@ import {
   WorkOrdersService,
   type AddLabourData,
   type AddPartData,
+  type AddRecommendationData,
   type AssignMechanicData,
   type ChangeWorkOrderStatusData,
   type CreateWorkOrderData,
@@ -138,5 +140,23 @@ export class WorkOrdersController {
   @Delete(":id/parts/:partId")
   removePart(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("partId") partId: string): Promise<WorkOrderDetail> {
     return this.workOrders.removePart(user, id, partId);
+  }
+
+  @Post(":id/recommendations")
+  addRecommendation(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body(new ZodValidationPipe(AddRecommendationSchema)) body: AddRecommendationData,
+  ): Promise<WorkOrderDetail> {
+    return this.workOrders.addRecommendation(user, id, body);
+  }
+
+  @Delete(":id/recommendations/:recommendationId")
+  removeRecommendation(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("recommendationId") recommendationId: string,
+  ): Promise<WorkOrderDetail> {
+    return this.workOrders.removeRecommendation(user, id, recommendationId);
   }
 }

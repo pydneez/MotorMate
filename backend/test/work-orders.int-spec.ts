@@ -138,10 +138,10 @@ describe("work order lifecycle", () => {
     ]);
   });
 
-  it("keeps Completed and Cancelled for advisors, and doesn't complete yet", async () => {
+  it("keeps Completed and Cancelled for advisors", async () => {
     await api(tokens.sam).post(`/work-orders/${woId}/status`, { status: "QUALITY_CHECK" }).expect(200);
     await api(tokens.sam).post(`/work-orders/${woId}/status`, { status: "CANCELLED" }).expect(403);
-    await api(tokens.advisor).post(`/work-orders/${woId}/status`, { status: "COMPLETED" }).expect(400);
+    await api(tokens.sam).post(`/work-orders/${woId}/status`, { status: "COMPLETED" }).expect(403);
     await api(tokens.advisor).post(`/work-orders/${woId}/status`, { status: "IN_PROGRESS", note: "Still squeals" }).expect(200);
   });
 
@@ -250,5 +250,104 @@ describe("walk-in check-in", () => {
 
   it("is for advisors and admins only", async () => {
     await api(tokens.sam).post("/work-orders/walk-in", { firstName: "A", lastName: "B", phone: "0890000000", ...car("JTDKB20U093000003", "8กก 8888") }).expect(403);
+  });
+});
+
+describe("completion, invoice and payment", () => {
+  let jobId = "";
+  let invoiceId = "";
+  let vehicleId = "";
+  let otherCustomerToken = "";
+
+  beforeAll(async () => {
+    const jordan = await prisma.customer.findFirstOrThrow({ where: { email: "jordan@wo.test" } });
+    vehicleId = (
+      await prisma.vehicle.create({
+        data: { customerId: jordan.id, vin: "MRHFC1650KP000099", plate: "9กข 9999", plateNormalized: "9กข9999", province: "กรุงเทพมหานคร", make: "Honda", model: "HR-V", year: 2021, mileage: 20000 },
+      })
+    ).id;
+    const passwordHash = await bcrypt.hash(PASSWORD, 4);
+    const other = await prisma.user.create({ data: { email: "other@wo.test", role: "CUSTOMER", firstName: "Other", lastName: "Test", passwordHash } });
+    await prisma.customer.create({ data: { firstName: "Other", lastName: "Test", phone: "+66899999999", userId: other.id } });
+    otherCustomerToken = (await request(app.getHttpServer()).post("/auth/login").send({ email: "other@wo.test", password: PASSWORD }).expect(200)).body.accessToken;
+  });
+
+  it("works the job up to quality check, with a recommendation", async () => {
+    const mechanicApi = api(tokens.sam);
+    jobId = (await api(tokens.advisor).post("/work-orders", { vehicleId, mileageIn: "24500", complaint: "Service", mechanicId: ids.sam }).expect(201)).body.id;
+    await mechanicApi.post(`/work-orders/${jobId}/status`, { status: "DIAGNOSING" }).expect(200);
+    await mechanicApi.post(`/work-orders/${jobId}/labour`, { description: "Brake fluid flush", laborCost: "500" }).expect(201);
+    await mechanicApi.post(`/work-orders/${jobId}/parts`, { inventoryItemId: ids.fluid, quantity: "1" }).expect(201);
+
+    await mechanicApi.post(`/work-orders/${jobId}/recommendations`, { description: "Check pads", dueMileage: "24000" }).expect(400);
+    const rec = await mechanicApi.post(`/work-orders/${jobId}/recommendations`, { description: "Brake pads check", dueMileage: "34500", dueDate: "" }).expect(201);
+    expect(rec.body.recommendations).toEqual([expect.objectContaining({ description: "Brake pads check", dueMileage: 34500, dueDate: null })]);
+
+    await mechanicApi.post(`/work-orders/${jobId}/status`, { status: "IN_PROGRESS" }).expect(200);
+    await mechanicApi.post(`/work-orders/${jobId}/status`, { status: "QUALITY_CHECK" }).expect(200);
+  });
+
+  it("completes: invoice issued, vehicle mileage and history updated, job locked", async () => {
+    const res = await api(tokens.advisor).post(`/work-orders/${jobId}/status`, { status: "COMPLETED", note: "QC passed" }).expect(200);
+
+    expect(res.body.status).toBe("COMPLETED");
+    expect(res.body.completedAt).not.toBeNull();
+    // 500 + 320.50 = 820.50; VAT 57.435 → 57.44; total 877.94
+    expect(res.body.totals).toEqual(expect.objectContaining({ subtotal: 820.5, vat: 57.44, total: 877.94 }));
+    expect(res.body.invoice).toEqual(expect.objectContaining({ status: "UNPAID" }));
+    invoiceId = res.body.invoice.id;
+
+    const vehicle = await api(tokens.advisor).get(`/vehicles/${vehicleId}`).expect(200);
+    expect(vehicle.body.mileage).toBe(24500);
+    expect(vehicle.body.history[0]).toEqual(
+      expect.objectContaining({ workOrderId: jobId, status: "COMPLETED", invoiceId, total: 877.94, recommendations: [expect.objectContaining({ dueMileage: 34500 })] }),
+    );
+
+    await api(tokens.advisor).post(`/work-orders/${jobId}/status`, { status: "COMPLETED" }).expect(409);
+    await api(tokens.advisor).post(`/work-orders/${jobId}/labour`, { description: "Extra", laborCost: "1" }).expect(409);
+  });
+
+  it("refuses to complete a job with nothing on it", async () => {
+    const empty = (await api(tokens.advisor).post("/work-orders", { vehicleId, mileageIn: "24500", complaint: "Noise" }).expect(201)).body.id;
+    for (const status of ["DIAGNOSING", "IN_PROGRESS", "QUALITY_CHECK"]) {
+      await api(tokens.advisor).post(`/work-orders/${empty}/status`, { status }).expect(200);
+    }
+    const res = await api(tokens.advisor).post(`/work-orders/${empty}/status`, { status: "COMPLETED" }).expect(400);
+    expect(res.body.message).toContain("at least one labour line or part");
+    await api(tokens.advisor).post(`/work-orders/${empty}/status`, { status: "CANCELLED" }).expect(200);
+  });
+
+  it("shows the invoice to staff and its owner only", async () => {
+    const invoice = await api(tokens.advisor).get(`/invoices/${invoiceId}`).expect(200);
+    expect(invoice.body).toEqual(
+      expect.objectContaining({
+        status: "UNPAID",
+        subtotal: 820.5,
+        vat: 57.44,
+        total: 877.94,
+        customer: expect.objectContaining({ name: "Jordan Lee", phone: "+66812345678" }),
+        labour: [expect.objectContaining({ description: "Brake fluid flush", laborCost: 500 })],
+        parts: [expect.objectContaining({ sku: "FLUID", quantity: 1, unitPrice: 320.5 })],
+      }),
+    );
+
+    await api(tokens.customer).get(`/invoices/${invoiceId}`).expect(200);
+    const mine = await api(tokens.customer).get("/invoices").expect(200);
+    expect(mine.body.items.map((i: { id: string }) => i.id)).toContain(invoiceId);
+
+    await api(otherCustomerToken).get(`/invoices/${invoiceId}`).expect(404);
+    expect((await api(otherCustomerToken).get("/invoices").expect(200)).body.total).toBe(0);
+    await api(tokens.sam).get("/invoices").expect(403);
+  });
+
+  it("is marked paid once, by staff, with who and when", async () => {
+    await api(tokens.customer).post(`/invoices/${invoiceId}/pay`).expect(403);
+
+    const paid = await api(tokens.advisor).post(`/invoices/${invoiceId}/pay`).expect(200);
+    expect(paid.body).toEqual(expect.objectContaining({ status: "PAID", paidAt: expect.any(String), paidBy: "Alex Test" }));
+    await api(tokens.advisor).post(`/invoices/${invoiceId}/pay`).expect(409);
+
+    const unpaid = await api(tokens.advisor).get("/invoices?status=UNPAID").expect(200);
+    expect(unpaid.body.items.map((i: { id: string }) => i.id)).not.toContain(invoiceId);
   });
 });

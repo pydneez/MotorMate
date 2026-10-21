@@ -30,6 +30,8 @@ export function createPrismaMock() {
     // `fields` stands in for Prisma field references (e.g. quantityOnHand <= reorderLevel).
     inventoryItem: { ...model(), fields: { reorderLevel: "<ref:reorderLevel>" } },
     stockMovement: model(),
+    invoice: model(),
+    serviceRecommendation: model(),
     workOrder: model(),
     workOrderStatusChange: model(),
     serviceItem: model(),

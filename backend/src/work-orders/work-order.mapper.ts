@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import {
   calculateTotals,
+  type InvoiceStatus,
   type WorkOrderDetail,
   type WorkOrderStatus,
   type WorkOrderSummary,
@@ -29,6 +30,8 @@ export const workOrderDetailInclude = {
   serviceItems: { orderBy: { createdAt: "asc" } },
   partsUsed: { orderBy: { createdAt: "asc" }, include: { inventoryItem: { select: { sku: true, name: true } } } },
   statusChanges: { orderBy: { createdAt: "asc" }, include: { changedBy: { select: { firstName: true, lastName: true } } } },
+  recommendations: { orderBy: { createdAt: "asc" } },
+  invoice: { select: { id: true, number: true, status: true, subtotal: true, vatRate: true, vatAmount: true, total: true } },
 } satisfies Prisma.WorkOrderInclude;
 
 type SummaryRow = Prisma.WorkOrderGetPayload<{ include: typeof workOrderSummaryInclude }>;
@@ -76,6 +79,11 @@ export function toWorkOrderDetail(row: DetailRow): WorkOrderDetail {
       lineTotal: Math.round(unitPrice * 100 * part.quantity) / 100,
     };
   });
+  const running = calculateTotals(
+    labour.map((line) => line.laborCost),
+    parts,
+  );
+  const { invoice } = row;
   return {
     ...toWorkOrderSummary(row),
     diagnosis: row.diagnosis,
@@ -91,9 +99,23 @@ export function toWorkOrderDetail(row: DetailRow): WorkOrderDetail {
       createdAt: change.createdAt.toISOString(),
       changedBy: name(change.changedBy),
     })),
-    totals: calculateTotals(
-      labour.map((line) => line.laborCost),
-      parts,
-    ),
+    recommendations: row.recommendations.map((rec) => ({
+      id: rec.id,
+      description: rec.description,
+      dueMileage: rec.dueMileage,
+      dueDate: rec.dueDate ? rec.dueDate.toISOString().slice(0, 10) : null,
+    })),
+    // Once invoiced, show exactly what was billed.
+    totals: invoice
+      ? {
+          labour: running.labour,
+          parts: running.parts,
+          subtotal: invoice.subtotal.toNumber(),
+          vatRate: invoice.vatRate.toNumber(),
+          vat: invoice.vatAmount.toNumber(),
+          total: invoice.total.toNumber(),
+        }
+      : running,
+    invoice: invoice ? { id: invoice.id, number: invoice.number, status: invoice.status as InvoiceStatus } : null,
   };
 }

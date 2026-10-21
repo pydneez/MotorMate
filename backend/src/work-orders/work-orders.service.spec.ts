@@ -252,12 +252,69 @@ describe("WorkOrdersService.changeStatus", () => {
     await expect(workOrders.changeStatus(advisor, "wo-1", { status: to as never })).rejects.toThrow(BadRequestException);
   });
 
-  it("doesn't complete jobs yet (completion and invoicing are Step 4b)", async () => {
-    const { prisma, workOrders } = setup();
-    prisma.workOrder.findUnique.mockResolvedValue(workOrderRow({ status: "QUALITY_CHECK" }));
+  describe("completing (QC sign-off)", () => {
+    function atQualityCheck() {
+      const ctx = setup();
+      ctx.prisma.workOrder.findUnique.mockResolvedValue(workOrderRow({ status: "QUALITY_CHECK" }));
+      ctx.prisma.serviceItem.findMany.mockResolvedValue([{ laborCost: new Prisma.Decimal(600) }]);
+      ctx.prisma.partUsed.findMany.mockResolvedValue([{ quantity: 2, unitPrice: new Prisma.Decimal("320.50") }]);
+      ctx.prisma.invoice.create.mockResolvedValue({ id: "inv-1" });
+      return ctx;
+    }
 
-    await expect(workOrders.changeStatus(advisor, "wo-1", { status: "COMPLETED" })).rejects.toThrow("aren't available yet");
-    expect(prisma.workOrder.update).not.toHaveBeenCalled();
+    it("issues the invoice from the job's lines with VAT 7%", async () => {
+      const { prisma, workOrders } = atQualityCheck();
+
+      await workOrders.changeStatus(advisor, "wo-1", { status: "COMPLETED" });
+
+      // 600 + 2 × 320.50 = 1,241.00; VAT 86.87; total 1,327.87
+      expect(prisma.invoice.create.mock.calls[0][0].data).toEqual({
+        workOrderId: "wo-1",
+        subtotal: 1241,
+        vatRate: 0.07,
+        vatAmount: 86.87,
+        total: 1327.87,
+      });
+      expect(prisma.workOrder.update.mock.calls[0][0].data).toEqual({ status: "COMPLETED", completedAt: expect.any(Date) });
+      expect(prisma.workOrderStatusChange.create.mock.calls[0][0].data).toEqual(
+        expect.objectContaining({ fromStatus: "QUALITY_CHECK", toStatus: "COMPLETED", changedById: "advisor-1" }),
+      );
+    });
+
+    it("moves the vehicle's mileage up to the check-in reading, never down", async () => {
+      const { prisma, workOrders } = atQualityCheck();
+
+      await workOrders.changeStatus(advisor, "wo-1", { status: "COMPLETED" });
+
+      expect(prisma.vehicle.updateMany).toHaveBeenCalledWith({
+        where: { id: "veh-1", mileage: { lt: 45000 } },
+        data: { mileage: 45000 },
+      });
+    });
+
+    it("refuses an empty job", async () => {
+      const { prisma, workOrders } = atQualityCheck();
+      prisma.serviceItem.findMany.mockResolvedValue([]);
+      prisma.partUsed.findMany.mockResolvedValue([]);
+
+      await expect(workOrders.changeStatus(advisor, "wo-1", { status: "COMPLETED" })).rejects.toThrow("at least one labour line or part");
+      expect(prisma.invoice.create).not.toHaveBeenCalled();
+    });
+
+    it("turns a double completion into a conflict", async () => {
+      const { prisma, workOrders } = atQualityCheck();
+      prisma.invoice.create.mockRejectedValue(new Prisma.PrismaClientKnownRequestError("dup", { code: "P2002", clientVersion: "7" }));
+
+      await expect(workOrders.changeStatus(advisor, "wo-1", { status: "COMPLETED" })).rejects.toThrow("already been completed");
+    });
+
+    it("can't complete before quality check", async () => {
+      const { prisma, workOrders } = atQualityCheck();
+      prisma.workOrder.findUnique.mockResolvedValue(workOrderRow({ status: "IN_PROGRESS" }));
+
+      await expect(workOrders.changeStatus(advisor, "wo-1", { status: "COMPLETED" })).rejects.toThrow(BadRequestException);
+      expect(prisma.invoice.create).not.toHaveBeenCalled();
+    });
   });
 
   it("returns every part to stock when a job is cancelled", async () => {
@@ -426,5 +483,50 @@ describe("WorkOrdersService.list", () => {
     const where = prisma.workOrder.findMany.mock.calls[0][0].where;
     expect(where.status).toEqual({ in: ["COMPLETED", "CANCELLED"] });
     expect(where.mechanicId).toBeNull();
+  });
+});
+
+describe("WorkOrdersService recommendations", () => {
+  it("adds one for the vehicle, linked to this visit", async () => {
+    const { prisma, workOrders } = setup();
+    prisma.workOrder.findUnique.mockResolvedValue(workOrderRow());
+    prisma.serviceRecommendation.create.mockResolvedValue({ id: "rec-1" });
+
+    await workOrders.addRecommendation(sam, "wo-1", { description: "Brake fluid change", dueMileage: 60000, dueDate: "2099-01-31" });
+
+    expect(prisma.serviceRecommendation.create.mock.calls[0][0].data).toEqual({
+      vehicleId: "veh-1",
+      workOrderId: "wo-1",
+      description: "Brake fluid change",
+      dueMileage: 60000,
+      dueDate: new Date("2099-01-31T00:00:00Z"),
+      createdById: "mech-sam",
+    });
+  });
+
+  it("refuses a due mileage at or below this visit, and a past due date", async () => {
+    const { prisma, workOrders } = setup();
+    prisma.workOrder.findUnique.mockResolvedValue(workOrderRow());
+
+    const mileage = await workOrders.addRecommendation(advisor, "wo-1", { description: "x", dueMileage: 45000 }).catch((e) => e);
+    expect(mileage.getResponse().errors.dueMileage[0]).toContain("45,000 km");
+    await expect(workOrders.addRecommendation(advisor, "wo-1", { description: "x", dueDate: "2000-01-01" })).rejects.toThrow("future");
+    expect(prisma.serviceRecommendation.create).not.toHaveBeenCalled();
+  });
+
+  it("is only for the assigned mechanic or staff", async () => {
+    const { prisma, workOrders } = setup();
+    prisma.workOrder.findUnique.mockResolvedValue(workOrderRow());
+
+    await expect(workOrders.addRecommendation(otherMechanic, "wo-1", { description: "x", dueMileage: 60000 })).rejects.toThrow(ForbiddenException);
+  });
+
+  it("removes only a recommendation from this job", async () => {
+    const { prisma, workOrders } = setup();
+    prisma.workOrder.findUnique.mockResolvedValue(workOrderRow());
+    prisma.serviceRecommendation.findFirst.mockResolvedValue(null);
+
+    await expect(workOrders.removeRecommendation(advisor, "wo-1", "rec-other")).rejects.toThrow(NotFoundException);
+    expect(prisma.serviceRecommendation.findFirst).toHaveBeenCalledWith({ where: { id: "rec-other", workOrderId: "wo-1" } });
   });
 });
