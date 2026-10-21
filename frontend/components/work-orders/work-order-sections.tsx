@@ -6,6 +6,7 @@ import { Plus, Search, Trash2 } from "lucide-react";
 import {
   AddLabourSchema,
   AddPartSchema,
+  AddRecommendationSchema,
   UpdateWorkOrderDetailsSchema,
   type InventoryItemSummary,
   type Paginated,
@@ -14,7 +15,7 @@ import {
 import { Modal } from "@/components/data/modal";
 import { Alert, Button, Card, Field, TextAreaField } from "@/components/ui";
 import { formValues, useApi, useFormSubmit } from "@/lib/client";
-import { formatTHB } from "@/lib/format";
+import { formatDate, formatKm, formatTHB } from "@/lib/format";
 
 function useWorkOrderCall(workOrderId: string) {
   const router = useRouter();
@@ -272,6 +273,80 @@ export function PartsSection({ workOrder, canEdit }: { workOrder: WorkOrderDetai
       )}
       {action.error && <div className="mt-2"><Alert>{action.error}</Alert></div>}
       {adding && <AddPartDialog workOrderId={workOrder.id} onClose={() => setAdding(false)} />}
+    </Card>
+  );
+}
+
+/**
+ * Future services for this car ("Brake fluid change at 60,000 km"). The reminder job reads
+ * them later; they also show on the vehicle's service history.
+ */
+export function RecommendationsSection({ workOrder, canEdit }: { workOrder: WorkOrderDetail; canEdit: boolean }) {
+  const action = useWorkOrderCall(workOrder.id);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  async function onAdd(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const body = action.validate(AddRecommendationSchema, formValues(event.currentTarget));
+    if (body && (await action.send("/recommendations", "POST", body))) formRef.current?.reset();
+  }
+
+  if (!canEdit && workOrder.recommendations.length === 0) return null;
+  return (
+    <Card className="p-4">
+      <h3 className="text-sm font-semibold">Recommended next service</h3>
+      <p className="mb-2 text-xs text-slate-500">The customer gets a reminder when it&apos;s due.</p>
+      {workOrder.recommendations.length === 0 ? (
+        <p className="text-sm text-slate-500">None yet.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100 text-sm">
+          {workOrder.recommendations.map((rec) => (
+            <li key={rec.id} className="flex items-center justify-between gap-3 py-2">
+              <span>
+                {rec.description}
+                <span className="text-slate-500">
+                  {rec.dueMileage !== null && ` · at ${formatKm(rec.dueMileage)}`}
+                  {rec.dueDate && ` · by ${formatDate(rec.dueDate)}`}
+                </span>
+              </span>
+              {canEdit && (
+                <button
+                  onClick={() => action.send(`/recommendations/${rec.id}`, "DELETE")}
+                  aria-label={`Remove ${rec.description}`}
+                  className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canEdit && (
+        <form ref={formRef} onSubmit={onAdd} noValidate className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-start">
+          <Field
+            label="Service"
+            name="description"
+            placeholder="e.g. Brake fluid change"
+            error={action.fieldErrors.description}
+            className="sm:col-span-3"
+          />
+          <Field
+            label="Due at (km)"
+            name="dueMileage"
+            type="number"
+            inputMode="numeric"
+            min={workOrder.mileageIn + 1}
+            placeholder={String(workOrder.mileageIn + 10000)}
+            error={action.fieldErrors.dueMileage}
+          />
+          <Field label="or by date" name="dueDate" type="date" error={action.fieldErrors.dueDate} />
+          <Button type="submit" variant="secondary" loading={action.submitting} className="sm:mt-6">
+            <Plus className="h-4 w-4" aria-hidden /> Add
+          </Button>
+        </form>
+      )}
+      {action.error && <div className="mt-2"><Alert>{action.error}</Alert></div>}
     </Card>
   );
 }

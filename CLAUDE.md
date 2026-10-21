@@ -122,7 +122,9 @@ backend/src/
     customers.module.ts
   vehicles/             also vehicle.mapper.ts (VehicleSummary / service history shapes)
   inventory/            catalogue + StockService (the only code that changes stock levels)
-  work-orders/          check-in, status moves, notes, labour, parts used (via StockService)
+  work-orders/          check-in (incl. walk-in), status moves, notes, labour, parts used
+                        (via StockService), recommendations, completion → invoice
+  invoices/             invoice list/detail (customers scoped), mark as paid
   common/
     decorators/          @Public, @Roles, @CurrentUser
     guards/              JwtAuthGuard, RolesGuard (both global)
@@ -199,8 +201,23 @@ schema before calling the API. List search and paging live in the URL.
   - Parts used take stock immediately (`StockService`, reason `WORK_ORDER`) at the item's
     price at that moment; removing a part or cancelling the job puts the stock back.
   - Totals use `calculateTotals()` in whole satang (VAT 7%, rounded half-up).
-  - Completion (invoice, vehicle mileage/history update) is Step 4b; until then the API
-    refuses the COMPLETED move.
+  - **Completion** (QUALITY_CHECK → COMPLETED, advisor/admin) runs in one transaction:
+    issues the `Invoice` from the job's lines (`calculateTotals`), sets `completedAt`, and
+    raises the vehicle's mileage to the check-in reading (conditional update, never lowers
+    it). A job with no labour and no parts can't be completed; two completions at once →
+    409 (invoice is unique per job).
+  - **Recommendations** ("Brake pads check at 80,000 km") are added by staff or the assigned
+    mechanic while the job is open: due mileage must be above this visit's, due date after
+    today (Bangkok); at least one of the two. Stored at UTC midnight so `yyyy-mm-dd`
+    round-trips. They show on the vehicle's service history; the reminder job reads them.
+- **Invoices** (`backend/src/invoices`): `INV-0001`, VAT 7%, amounts frozen at completion.
+  - Advisors/admins see all; customers only their own (others → 404); mechanics none (403).
+  - "Mark as paid" is just a flag (advisor/admin, once, conditional update) — who paid it
+    comes from the `invoice.paid` audit entry, so there is no extra column. No payment
+    integration, no un-paying, `VOID` unused for now.
+  - Printing uses the browser's print dialog; the app shell is hidden with `print:hidden`.
+    Shop details on the invoice are placeholders in `frontend/lib/shop.ts`. The PDF-to-S3
+    version is stretch ticket CLOUDAPPG3-45.
 - **Stock is deducted when a part is logged** on a work order (it reserves the part), and
   returned when the part is removed or the work order is cancelled. Every change writes a
   `StockMovement` in the same DB transaction.
@@ -294,6 +311,10 @@ The build is done in numbered steps (Step 1 = schema + auth, Step 2 = ...). For 
    deviated from the plan. Then it hands over the `git add` / `git commit` commands with a
    Conventional Commits message. **The user commits and pushes themselves**; Claude does
    not commit unless asked.
+5. **PR description.** Every report ends with a ready-to-paste PR title and description
+   (in a fenced `markdown` block) for the step's branch: summary, what's included, tests
+   and browser checks, what's not included, the base branch if it's stacked, and the Jira
+   tickets.
 
 ## Local development
 

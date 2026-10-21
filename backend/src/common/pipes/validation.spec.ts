@@ -3,6 +3,7 @@ import type { ZodTypeAny } from "zod";
 import {
   AddLabourSchema,
   AddPartSchema,
+  AddRecommendationSchema,
   allowedNextStatuses,
   calculateTotals,
   ChangePasswordSchema,
@@ -267,6 +268,8 @@ describe("form schemas accept their own output (browser → API round trip)", ()
     ["StocktakeSchema", StocktakeSchema, { countedQuantity: "0", reason: " Damaged " }],
     ["WalkInCheckInSchema (new customer)", WalkInCheckInSchema, { customerId: "", firstName: "A", lastName: "B", phone: "081 234 5678", email: "", lineId: "", ...validVehicle, color: "", mileageIn: "45000", complaint: "Noise", mechanicId: "" }],
     ["WalkInCheckInSchema (existing customer)", WalkInCheckInSchema, { customerId: "cust-1", firstName: "", lastName: "", phone: "", email: "", lineId: "", ...validVehicle, color: "", mileageIn: "45000", complaint: "Noise", mechanicId: "" }],
+    ["AddRecommendationSchema (mileage only)", AddRecommendationSchema, { description: " Brake fluid ", dueMileage: "60000", dueDate: "" }],
+    ["AddRecommendationSchema (date only)", AddRecommendationSchema, { description: "Timing belt", dueMileage: "", dueDate: "2027-06-01" }],
   ];
 
   it.each(cases)("%s", (_name, schema, formInput) => {

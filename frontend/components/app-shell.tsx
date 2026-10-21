@@ -133,7 +133,7 @@ export function AppShell({ user, children }: { user: AuthUser; children: React.R
   return (
     <div className="flex min-h-screen">
       {/* Desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:flex">
+      <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white md:flex print:hidden">
         <div className="flex h-16 items-center border-b border-slate-200 px-6 text-lg font-bold">🔧 MotorMate</div>
         <NavLinks user={user} />
         <div className="border-t border-slate-200 p-3">
@@ -161,7 +161,7 @@ export function AppShell({ user, children }: { user: AuthUser; children: React.R
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6">
+        <header className="flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 sm:px-6 print:hidden">
           <div className="flex items-center gap-2">
             <button
               onClick={() => setDrawerOpen(true)}
@@ -174,7 +174,7 @@ export function AppShell({ user, children }: { user: AuthUser; children: React.R
           </div>
           <UserMenu user={user} />
         </header>
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 print:p-0">{children}</main>
       </div>
     </div>
   );

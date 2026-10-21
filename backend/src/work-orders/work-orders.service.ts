@@ -8,6 +8,7 @@ import {
 import { Prisma } from "@prisma/client";
 import {
   allowedNextStatuses,
+  calculateTotals,
   formatWorkOrderNumber,
   isClosedStatus,
   normalizePlate,
@@ -15,6 +16,7 @@ import {
   WORK_ORDER_STATUS_LABEL,
   type AddLabourSchema,
   type AddPartSchema,
+  type AddRecommendationSchema,
   type AssignMechanicSchema,
   type AuthUser,
   type ChangeWorkOrderStatusSchema,
@@ -43,6 +45,7 @@ export type ChangeWorkOrderStatusData = z.output<typeof ChangeWorkOrderStatusSch
 export type AddLabourData = z.output<typeof AddLabourSchema>;
 export type AddPartData = z.output<typeof AddPartSchema>;
 export type WalkInCheckInData = z.output<typeof WalkInCheckInSchema>;
+export type AddRecommendationData = z.output<typeof AddRecommendationSchema>;
 
 const OPEN_STATUSES: WorkOrderStatus[] = ["CHECKED_IN", "DIAGNOSING", "AWAITING_PARTS", "IN_PROGRESS", "QUALITY_CHECK"];
 const isStaff = (user: AuthUser) => user.role === "ADMIN" || user.role === "ADVISOR";
@@ -50,12 +53,14 @@ const isStaff = (user: AuthUser) => user.role === "ADMIN" || user.role === "ADVI
 /** Start/end of a yyyy-mm-dd day in shop time (Bangkok, UTC+7). */
 const dayStart = (day: string) => new Date(`${day}T00:00:00+07:00`);
 const dayEnd = (day: string) => new Date(`${day}T23:59:59.999+07:00`);
+/** Today as yyyy-mm-dd in shop time. */
+const bangkokToday = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
 type WorkOrderRow = Prisma.WorkOrderGetPayload<object>;
 
 /**
- * The work-order lifecycle (Step 4a): check-in, assignment, status moves, notes, labour and
- * parts. Completing a job and invoicing are Step 4b.
+ * The work-order lifecycle: check-in, assignment, status moves, notes, labour, parts,
+ * recommendations, and completion (which issues the invoice).
  *
  * Who may change what: advisors/admins anything; a mechanic only the jobs assigned to them,
  * and never the Completed / Cancelled moves. Nothing changes once a job is closed.
@@ -315,10 +320,7 @@ export class WorkOrdersService {
       if (staffCould) throw new ForbiddenException(`Only an advisor or admin can move a job to ${WORK_ORDER_STATUS_LABEL[to]}`);
       throw new BadRequestException(`A job can't go from ${WORK_ORDER_STATUS_LABEL[from]} to ${WORK_ORDER_STATUS_LABEL[to]}`);
     }
-    if (to === "COMPLETED") {
-      // Step 4b: completion creates the invoice and updates the vehicle's mileage and history.
-      throw new BadRequestException("Completing jobs and invoicing aren't available yet");
-    }
+    if (to === "COMPLETED") return this.complete(user, workOrder, input.note);
 
     await this.prisma.$transaction(async (tx) => {
       // Cancelling puts every part back on the shelf.
@@ -346,6 +348,110 @@ export class WorkOrdersService {
         entity: "WorkOrder",
         entityId: id,
         changes: { status: { from, to }, note: input.note ?? null },
+      });
+    });
+    return this.findOne(id);
+  }
+
+  /**
+   * QC sign-off → Completed, in one transaction: the invoice is issued from the job's lines
+   * (which are frozen from now on), the vehicle's mileage moves up to the check-in reading
+   * (never down), and the move is recorded. The job then shows on the vehicle's history.
+   */
+  private async complete(user: AuthUser, workOrder: WorkOrderRow, note: string | null | undefined): Promise<WorkOrderDetail> {
+    const id = workOrder.id;
+    const [labour, parts] = await Promise.all([
+      this.prisma.serviceItem.findMany({ where: { workOrderId: id }, select: { laborCost: true } }),
+      this.prisma.partUsed.findMany({ where: { workOrderId: id }, select: { quantity: true, unitPrice: true } }),
+    ]);
+    if (labour.length === 0 && parts.length === 0) {
+      throw new BadRequestException("Add at least one labour line or part before completing the job");
+    }
+    const totals = calculateTotals(
+      labour.map((line) => line.laborCost.toNumber()),
+      parts.map((part) => ({ quantity: part.quantity, unitPrice: part.unitPrice.toNumber() })),
+    );
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const invoice = await tx.invoice.create({
+          data: { workOrderId: id, subtotal: totals.subtotal, vatRate: totals.vatRate, vatAmount: totals.vat, total: totals.total },
+        });
+        await tx.workOrder.update({ where: { id }, data: { status: "COMPLETED", completedAt: new Date() } });
+        // Conditional, so a higher reading recorded meanwhile is never lowered.
+        await tx.vehicle.updateMany({
+          where: { id: workOrder.vehicleId, mileage: { lt: workOrder.mileageIn } },
+          data: { mileage: workOrder.mileageIn },
+        });
+        await tx.workOrderStatusChange.create({
+          data: { workOrderId: id, fromStatus: workOrder.status, toStatus: "COMPLETED", note: note ?? null, changedById: user.id },
+        });
+        await writeAudit(tx, {
+          actorId: user.id,
+          action: "workOrder.completed",
+          entity: "WorkOrder",
+          entityId: id,
+          changes: { status: { from: workOrder.status, to: "COMPLETED" }, invoiceId: invoice.id, total: totals.total },
+        });
+      });
+    } catch (error) {
+      // Two people pressed "Complete" at once: the invoice is unique per job.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new ConflictException(`${formatWorkOrderNumber(workOrder.number)} has already been completed`);
+      }
+      throw error;
+    }
+    return this.findOne(id);
+  }
+
+  // ── Recommendations (assigned mechanic or staff, while open) ──────────────
+
+  async addRecommendation(user: AuthUser, id: string, input: AddRecommendationData): Promise<WorkOrderDetail> {
+    const workOrder = await this.findForWrite(user, id);
+    if (input.dueMileage !== undefined && input.dueMileage <= workOrder.mileageIn) {
+      throw new BadRequestException({
+        message: "Due mileage must be above the mileage at check-in",
+        errors: { dueMileage: [`Must be above ${workOrder.mileageIn.toLocaleString("en-US")} km (this visit)`] },
+      });
+    }
+    if (input.dueDate !== undefined && input.dueDate <= bangkokToday()) {
+      throw new BadRequestException({ message: "Due date must be in the future", errors: { dueDate: ["Choose a date after today"] } });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const rec = await tx.serviceRecommendation.create({
+        data: {
+          vehicleId: workOrder.vehicleId,
+          workOrderId: id,
+          description: input.description,
+          dueMileage: input.dueMileage ?? null,
+          dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00Z`) : null,
+          createdById: user.id,
+        },
+      });
+      await writeAudit(tx, {
+        actorId: user.id,
+        action: "workOrder.recommendationAdded",
+        entity: "WorkOrder",
+        entityId: id,
+        changes: { recommendationId: rec.id, description: input.description, dueMileage: input.dueMileage ?? null, dueDate: input.dueDate ?? null },
+      });
+    });
+    return this.findOne(id);
+  }
+
+  async removeRecommendation(user: AuthUser, id: string, recommendationId: string): Promise<WorkOrderDetail> {
+    await this.findForWrite(user, id);
+    const rec = await this.prisma.serviceRecommendation.findFirst({ where: { id: recommendationId, workOrderId: id } });
+    if (!rec) throw new NotFoundException("Recommendation not found");
+    await this.prisma.$transaction(async (tx) => {
+      await tx.serviceRecommendation.delete({ where: { id: recommendationId } });
+      await writeAudit(tx, {
+        actorId: user.id,
+        action: "workOrder.recommendationRemoved",
+        entity: "WorkOrder",
+        entityId: id,
+        changes: { description: rec.description },
       });
     });
     return this.findOne(id);

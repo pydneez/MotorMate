@@ -63,7 +63,7 @@ export default async function VehiclePage({ params }: { params: { id: string } }
       </Card>
 
       <h2 className="mb-4 text-base font-semibold">Service history</h2>
-      <ServiceHistory history={vehicle.history} linkWorkOrders={!isCustomer} />
+      <ServiceHistory history={vehicle.history} linkWorkOrders={!isCustomer} linkInvoices={user.role !== "MECHANIC"} />
     </div>
   );
 }
