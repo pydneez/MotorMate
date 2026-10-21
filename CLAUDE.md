@@ -122,6 +122,7 @@ backend/src/
     customers.module.ts
   vehicles/             also vehicle.mapper.ts (VehicleSummary / service history shapes)
   inventory/            catalogue + StockService (the only code that changes stock levels)
+  work-orders/          check-in, status moves, notes, labour, parts used (via StockService)
   common/
     decorators/          @Public, @Roles, @CurrentUser
     guards/              JwtAuthGuard, RolesGuard (both global)
@@ -180,7 +181,22 @@ schema before calling the API. List search and paging live in the URL.
 ### Domain rules (decided — don't re-litigate)
 
 - **Work order statuses:** `CHECKED_IN → DIAGNOSING → AWAITING_PARTS → IN_PROGRESS →
-  QUALITY_CHECK → COMPLETED`, plus `CANCELLED`.
+  QUALITY_CHECK → COMPLETED`, plus `CANCELLED`. Allowed moves and who may make them live in
+  `allowedNextStatuses()` (`packages/types/src/work-order.ts`), shared by the API and the
+  buttons:
+  - CHECKED_IN → DIAGNOSING; DIAGNOSING → AWAITING_PARTS / IN_PROGRESS; AWAITING_PARTS →
+    IN_PROGRESS; IN_PROGRESS → AWAITING_PARTS / QUALITY_CHECK; QUALITY_CHECK → IN_PROGRESS
+    (failed QC) / COMPLETED; any open status → CANCELLED.
+  - Advisors/admins can make any move. A mechanic can only change jobs **assigned to them**
+    (notes, labour, parts, status) and never makes the COMPLETED (QC sign-off) or CANCELLED
+    moves. Other mechanics can view. Customers see status on their vehicle page only.
+  - Check-in: mileage must be ≥ the vehicle's recorded mileage, and a vehicle can have only
+    one open work order. Completed/cancelled jobs can't be changed at all.
+  - Parts used take stock immediately (`StockService`, reason `WORK_ORDER`) at the item's
+    price at that moment; removing a part or cancelling the job puts the stock back.
+  - Totals use `calculateTotals()` in whole satang (VAT 7%, rounded half-up).
+  - Completion (invoice, vehicle mileage/history update) is Step 4b; until then the API
+    refuses the COMPLETED move.
 - **Stock is deducted when a part is logged** on a work order (it reserves the part), and
   returned when the part is removed or the work order is cancelled. Every change writes a
   `StockMovement` in the same DB transaction.
