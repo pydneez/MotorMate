@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { clearableText, ListQuerySchema, wholeNumber } from "./common";
+import { CreateCustomerSchema } from "./customer";
 import { money } from "./inventory";
+import { CreateVehicleSchema } from "./vehicle";
 import type { Role } from "./role";
 
 /** Shop-visit lifecycle from the kickoff report, plus CANCELLED. */
@@ -87,6 +89,52 @@ export const CreateWorkOrderSchema = z.object({
 });
 
 export type CreateWorkOrderInput = z.input<typeof CreateWorkOrderSchema>;
+
+const walkInCustomerFields = CreateCustomerSchema.partial().omit({ notes: true }).shape;
+const walkInVehicleFields = CreateVehicleSchema.omit({ customerId: true, mileage: true }).shape;
+
+/**
+ * Walk-in check-in on one screen: an existing customer (`customerId`) or a new one (name +
+ * phone required), a new vehicle, and the visit. Flat, so form field errors map 1:1 and the
+ * parsed result can be sent and re-parsed by the API. The vehicle's mileage is `mileageIn`.
+ */
+const WALK_IN_CUSTOMER_KEYS = ["firstName", "lastName", "phone", "email", "lineId"] as const;
+
+/** With an existing customer picked, the (hidden) new-customer fields are ignored. */
+function dropNewCustomerFields(value: unknown): unknown {
+  if (!value || typeof value !== "object" || !(value as { customerId?: unknown }).customerId) return value;
+  const rest: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+  for (const key of WALK_IN_CUSTOMER_KEYS) delete rest[key];
+  return rest;
+}
+
+const WalkInCheckInObject = z
+  .object({
+    customerId: z
+      .string()
+      .optional()
+      .transform((value) => value || undefined),
+    ...walkInCustomerFields,
+    ...walkInVehicleFields,
+    mileageIn: CreateWorkOrderSchema.shape.mileageIn,
+    complaint: CreateWorkOrderSchema.shape.complaint,
+    mechanicId: CreateWorkOrderSchema.shape.mechanicId,
+  })
+  .superRefine((data, ctx) => {
+    if (data.customerId) return;
+    const required: [keyof typeof data, string][] = [
+      ["firstName", "First name is required"],
+      ["lastName", "Last name is required"],
+      ["phone", "Phone number is required"],
+    ];
+    for (const [field, message] of required) {
+      if (!data[field]) ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: [field] });
+    }
+  });
+
+export const WalkInCheckInSchema = z.preprocess(dropNewCustomerFields, WalkInCheckInObject);
+
+export type WalkInCheckInInput = z.input<typeof WalkInCheckInObject>;
 
 /** Notes the assigned mechanic or staff keep up to date while the job is open. */
 export const UpdateWorkOrderDetailsSchema = z
