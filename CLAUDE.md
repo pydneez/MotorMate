@@ -23,8 +23,7 @@ Deadline: code freeze **Nov 10, 2026**, final presentation **Nov 17, 2026**.
 | Backend | NestJS, TypeScript |
 | ORM | Prisma |
 | Database | PostgreSQL — Docker locally, Amazon RDS in staging/prod |
-| Frontend hosting | AWS Amplify Hosting (native Next.js SSR support); fallback: a second ECS service behind the same ALB if Amplify is blocked in Learner Lab |
-| Backend hosting | AWS ECS Fargate (2 tasks for availability) behind an Application Load Balancer, images in ECR |
+| Hosting | Both apps as Docker containers on AWS ECS Fargate behind **one** Application Load Balancer (`/v1/*` → backend, 2 tasks; everything else → frontend, 1 task), images in ECR. HTTPS from an API Gateway HTTP API in front of the ALB (Amplify is restricted and CloudFront denied in Learner Lab) |
 | File storage | Amazon S3 (invoice PDFs, vehicle photos) |
 | Email reminders | Amazon SES (sandbox — only verified recipient addresses) |
 | Scheduled jobs | Amazon EventBridge Scheduler + AWS Lambda (daily due-reminder check) |
@@ -98,8 +97,16 @@ message reveals that *some* account uses that phone, similar to "email already r
 The check is in the service, not a DB constraint, so two simultaneous sign-ups could still
 race — acceptable at this scale.
 
-Frontend is hosted on Amplify (not static S3/CloudFront) specifically because NextAuth's
-`/api/auth/*` routes need a server runtime, which a static export can't provide.
+The frontend runs as a Next.js server (`output: "standalone"`, `frontend/Dockerfile`), not
+a static export, because NextAuth's `/api/auth/*` routes need a server runtime.
+
+**API address:** every backend route is under `/v1` (`configureApp()` in
+`backend/src/app.setup.ts`, used by `main.ts`; the health check is `GET /v1`). The
+frontend picks the base URL in `apiBaseUrl()` (`frontend/lib/api.ts`): the browser uses
+`NEXT_PUBLIC_API_URL` (`http://localhost:8080/v1` locally, the relative `/v1` on AWS where
+site and API share one address — baked in at build time); the Next.js server uses
+`API_INTERNAL_URL` (the load balancer, read at runtime) when set. One frontend image
+therefore works in every AWS account.
 
 ## Backend module structure
 
@@ -325,7 +332,7 @@ docker compose up -d          # start local Postgres
 pnpm install                  # install all workspace deps
 npm run db:migrate             # apply schema to local DB — alias for `pnpm --filter backend exec prisma migrate dev`
 npm run db:seed                # populate sample data — alias for `pnpm --filter backend exec prisma db seed`
-npm run dev:backend            # build packages/types, then run backend (NestJS) on :8080
+npm run dev:backend            # build packages/types, then run backend (NestJS) on :8080/v1
 npm run dev:frontend           # build packages/types, then run frontend (Next.js) on :3000
 npm run test                   # build packages/types, then Jest unit tests in every package
 npm run test:integration       # backend HTTP + real-Postgres tests (see below)
@@ -338,7 +345,13 @@ npm run test:integration       # backend HTTP + real-Postgres tests (see below)
   `docker exec motormate-postgres psql -U <user> -d motormate -c "CREATE DATABASE motormate_test"`.
 - Unit tests use the Prisma mock in `backend/test/prisma-mock.ts`.
 - Don't run `next build` while a frontend dev server is running — it overwrites `.next`
-  and the dev server starts serving pages without CSS/JS until restarted.
+  and the dev server starts serving pages without CSS/JS until restarted. Building the
+  Docker images is safe (it builds inside the container).
+- Production images, built from the repo root: `docker build -f backend/Dockerfile -t
+  motormate-backend .` and `docker build -f frontend/Dockerfile -t motormate-frontend .`
+  (each has its own ignore file: root `.dockerignore` / `frontend/Dockerfile.dockerignore`).
+  The backend applies migrations on start; the seed is compiled into it and runs with the
+  command `node dist-seed/seed.js`.
 
 Seeded logins (password `password123`): `admin@`, `advisor@`, `mechanic@motormate.example`,
 customer `jordan.lee@example.com`.
@@ -355,7 +368,8 @@ files themselves are gitignored, never committed):
 
 - `.env.example` (repo root) — Postgres/pgAdmin credentials, read by `docker-compose.yml`.
 - `backend/.env.example` — `DATABASE_URL` (Prisma), `JWT_SECRET`, `PORT`, `CORS_ORIGIN`.
-- `frontend/.env.example` — `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_API_URL`.
+- `frontend/.env.example` — `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_API_URL`
+  (includes `/v1`), and `API_INTERNAL_URL` (AWS only — see "API address" above).
 
 Values that must agree **across files**:
 
@@ -381,7 +395,16 @@ Values that must agree **across files**:
 - Cost rules: Fargate tasks in public subnets with public IPs — **no NAT Gateway**;
   RDS `db.t3.micro` with automated backups and encryption at rest.
 - No custom domain → Route 53 / ACM-with-own-domain are "production plan" items in the
-  final document; HTTPS comes from Amplify's or CloudFront's default certificate.
+  final document; HTTPS comes from the API Gateway HTTP API's default
+  `*.execute-api.amazonaws.com` certificate, which proxies the whole site to the ALB
+  (30-second request limit — fine for this app).
+- Tested in Learner Lab: **CloudFront is denied**, **Amplify's role is restricted** (so the
+  frontend is a container too), API Gateway HTTP APIs are allowed, only us-east-1/us-west-2,
+  and resources **keep running and billing after the lab session ends** — tear down nightly.
+  An ALB needs its own security group allowing inbound 80 (not the default SG).
+- Secrets (`JWT_SECRET`, `NEXTAUTH_SECRET`, DB password) are hidden (`NoEcho`) stack
+  parameters; Secrets Manager is the production plan in the final document.
+- CloudFormation templates and up/down scripts: Step 2b-2 (`infra/`).
 
 ## Parked ideas (nice-to-have, not scheduled)
 

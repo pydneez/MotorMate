@@ -12,7 +12,7 @@ kept up to date as the single source of truth and doubles as onboarding context.
 ## Tech stack
 
 Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · AWS
-(Amplify Hosting, ECS Fargate, RDS, S3, SES, EventBridge)
+(ECS Fargate containers behind an ALB, API Gateway for HTTPS, RDS, S3, SES, EventBridge)
 
 ## Prerequisites
 
@@ -37,6 +37,8 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
    cp frontend/.env.example frontend/.env
    ```
    The defaults work as-is for local development — no edits needed to get running.
+   Already have a `frontend/.env` from before the API moved under `/v1`? Change
+   `NEXT_PUBLIC_API_URL` to `http://localhost:8080/v1`.
 
 3. **Start local Postgres**
    ```bash
@@ -65,7 +67,7 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
 
 6. **Run the apps**
    ```bash
-   npm run dev:backend     # backend on http://localhost:8080
+   npm run dev:backend     # backend API on http://localhost:8080/v1
    npm run dev:frontend    # frontend on http://localhost:3000
    ```
    Run these in two terminal tabs. `npm run` just looks up the script name in

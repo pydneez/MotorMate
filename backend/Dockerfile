@@ -32,7 +32,8 @@ COPY backend backend
 ARG BUILD_DATABASE_URL=postgresql://build:build@localhost:5432/build
 RUN pnpm --filter @motormate/types build \
  && DATABASE_URL=$BUILD_DATABASE_URL pnpm --filter backend exec prisma generate \
- && pnpm --filter backend build
+ && pnpm --filter backend build \
+ && pnpm --filter backend exec tsc -p tsconfig.seed.json
 
 # A self-contained copy of the backend with production dependencies only
 # (workspace packages like @motormate/types are copied in, not symlinked).
@@ -49,6 +50,9 @@ WORKDIR /app
 COPY --from=build --chown=node:node /prod/backend/node_modules ./node_modules
 COPY --from=build --chown=node:node /prod/backend/package.json ./package.json
 COPY --from=build --chown=node:node /repo/backend/dist ./dist
+# The seed, compiled to JS (the image has no ts-node). Run it as a one-off task with the
+# command override `node dist-seed/seed.js`; it upserts, so re-running is safe.
+COPY --from=build --chown=node:node /repo/backend/dist-seed ./dist-seed
 COPY --from=build --chown=node:node /repo/backend/prisma ./prisma
 COPY --from=build --chown=node:node /repo/backend/prisma.config.ts ./prisma.config.ts
 
@@ -57,7 +61,7 @@ EXPOSE 8080
 
 # ECS and the load balancer use their own health checks; this one helps `docker ps` locally.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD node -e "fetch('http://localhost:' + (process.env.PORT || 8080)).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://localhost:' + (process.env.PORT || 8080) + '/v1').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 # Migrations take a database lock, so two tasks starting together is safe.
 CMD ["sh", "-c", "npx prisma migrate deploy && exec node dist/main"]
