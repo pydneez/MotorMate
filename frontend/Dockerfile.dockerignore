@@ -1,0 +1,24 @@
+# Used instead of the root .dockerignore when building frontend/Dockerfile (BuildKit picks
+# up <Dockerfile>.dockerignore). The build context is still the repo root.
+
+# Secrets — .env files must never end up in an image
+.env
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies and build output are recreated inside the image
+**/node_modules
+**/dist
+**/dist-seed
+**/.next
+**/*.tsbuildinfo
+
+# Not needed by the frontend image
+backend
+infra
+.git
+.claude
+**/*.md
+**/*.spec.ts
+docker-compose.yml
