@@ -47,7 +47,7 @@ deploy_stack "$APP_STACK" app.yml \
   "BackendImage=$REGISTRY/motormate-backend:$TAG" \
   "FrontendImage=$REGISTRY/motormate-frontend:$TAG" \
   "LabRoleArn=$LAB_ROLE_ARN" \
-  "DbPassword=$DB_PASSWORD" "JwtSecret=$JWT_SECRET" "NextAuthSecret=$NEXTAUTH_SECRET"
+  "DbPassword=$DB_PASSWORD" "JwtSecret=$JWT_SECRET" "NextAuthSecret=$NEXTAUTH_SECRET" "JobToken=$JOB_TOKEN"
 info "waiting for the containers to pass health checks…"
 aws ecs wait services-stable --cluster motormate --services backend frontend
 
