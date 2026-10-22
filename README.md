@@ -16,9 +16,14 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
 
 ## Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- [Node.js 20+](https://nodejs.org/)
-- [pnpm](https://pnpm.io/installation) (`npm install -g pnpm`)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) — **start it before
+  the steps below** (the whale icon must say "running")
+- [Node.js 22 LTS](https://nodejs.org/)
+- pnpm 11 — the repo pins the exact version; the simplest way to get it is
+  `corepack enable` (ships with Node), or `npm install -g pnpm@11`
+- Access to the GitHub repository (the owner adds you under **Settings → Collaborators**)
+
+On Windows, run the commands in Git Bash or PowerShell from the repo folder.
 
 ## Getting started
 
@@ -36,17 +41,20 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
    cp backend/.env.example backend/.env
    cp frontend/.env.example frontend/.env
    ```
-   The defaults work as-is for local development — no edits needed to get running.
-   Already have a `frontend/.env` from before the API moved under `/v1`? Change
-   `NEXT_PUBLIC_API_URL` to `http://localhost:8080/v1`.
+   The defaults work as-is — no edits needed. They're **local-only** development values
+   (your database only listens on your own machine), so there's nothing to ask a teammate
+   for and nothing to keep secret. Never reuse them on AWS; the deploy scripts generate
+   their own.
 
-3. **Start local Postgres**
+3. **Start the local database**
    ```bash
    docker compose up -d
    ```
-   This starts a Postgres 16 container on `localhost:5433` (mapped from the container's
-   internal 5432, to avoid clashing with any native Postgres install on your machine) with
-   a named volume, so your data survives container restarts. Check it's healthy with:
+   This starts Postgres 16 (the same version as AWS) on `localhost:5433` — not the usual
+   5432, so it can't clash with a Postgres installed on your machine — plus pgAdmin, an
+   optional database browser, at http://localhost:5050 (sign in with
+   `PGADMIN_DEFAULT_EMAIL` / `PGADMIN_DEFAULT_PASSWORD` from the root `.env`). Data lives in
+   a Docker volume, so it survives restarts. Check it's healthy with:
    ```bash
    docker compose ps
    ```
@@ -61,6 +69,8 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
    npm run db:migrate
    npm run db:seed
    ```
+   `db:migrate` creates the tables and then generates the Prisma client (the typed
+   database code the backend uses — Prisma 7 no longer does that step on its own).
    Sample logins (all with password `password123`): `admin@motormate.example`,
    `advisor@motormate.example`, `mechanic@motormate.example`, and the customer
    `jordan.lee@example.com`.
@@ -77,6 +87,20 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
    Both scripts first build the shared `packages/types` package (`npm run build:types`);
    if you edit shared types while the apps are running, re-run that command.
 
+7. **Open the app** at http://localhost:3000 and sign in with one of the sample logins
+   above — each role (admin, advisor, mechanic, customer) sees a different dashboard.
+
+### Something not working?
+
+- **`Can't reach database server` / authentication failed** — Docker Desktop isn't
+  running, or your `.env` files weren't copied from the examples. `docker compose ps`
+  should show `motormate-postgres` as healthy.
+- **Port 5433, 3000 or 8080 already in use** — another copy of the app (or another
+  project) is running; stop it, or change the port in `docker-compose.yml` and the
+  matching `.env` value.
+- **Login says "Can't reach the server"** — the backend isn't running (step 6), or
+  `NEXT_PUBLIC_API_URL` in `frontend/.env` doesn't end in `/v1`.
+
 ## Everyday commands
 
 | Command | What it does |
@@ -85,9 +109,10 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
 | `docker compose down` | Stop Postgres (data is preserved in the volume) |
 | `docker compose down -v` | Stop Postgres **and delete all local data** — use to reset a broken local DB |
 | `npm run db:studio` | Open a GUI to browse/edit local DB data |
-| `npm run db:migrate` | Apply schema changes after pulling new migrations |
+| `npm run db:migrate` | Apply schema changes after pulling new migrations, then regenerate the Prisma client |
+| `npm run db:generate` | Regenerate the Prisma client only (e.g. after switching branches) |
 | `npm run db:seed` | Populate sample data (safe to re-run, upserts) |
-| `pnpm lint` | Lint both apps |
+| `npm run typecheck` | Type-check every package |
 | `npm run test` | Run unit tests in every package |
 | `npm run test:integration` | Run backend tests against a real Postgres (`motormate_test` database — create it once, see below) |
 
@@ -112,7 +137,11 @@ day-to-day dev. To keep local data consistent enough to be useful:
   with Thai phone numbers and plates, ten inventory parts, an open and a completed work
   order, and a pending appointment) instead of hand-creating test records. Safe to
   re-run — it won't duplicate rows.
-- Never commit `.env` — only `.env.example` should be in git.
+- Never commit `.env` — only `.env.example` should be in git. Local `.env` values
+  (database password, `JWT_SECRET`, `NEXTAUTH_SECRET`) are per machine and never need
+  sharing; AWS secrets are generated per account into the gitignored `infra/.secrets/`.
+  If a real secret ever must be shared, use a shared password-manager vault (e.g.
+  Bitwarden or 1Password) — never Git, chat, or Jira.
 
 ## Deploying to AWS
 
