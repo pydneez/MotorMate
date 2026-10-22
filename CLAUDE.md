@@ -133,6 +133,8 @@ backend/src/
   work-orders/          check-in (incl. walk-in), status moves, notes, labour, parts used
                         (via StockService), recommendations, completion → invoice
   invoices/             invoice list/detail (customers scoped), mark as paid, PDF (S3)
+  appointments/         "Lite" booking: request, confirm, reschedule, cancel, no-show
+                        (check-in itself is POST /work-orders with appointmentId)
   common/
     decorators/          @Public, @Roles, @CurrentUser
     guards/              JwtAuthGuard, RolesGuard (both global)
@@ -218,6 +220,24 @@ schema before calling the API. List search and paging live in the URL.
     mechanic while the job is open: due mileage must be above this visit's, due date after
     today (Bangkok); at least one of the two. Stored at UTC midnight so `yyyy-mm-dd`
     round-trips. They show on the vehicle's service history; the reminder job reads them.
+- **Appointments** (`backend/src/appointments`; rules in `packages/types/src/appointment.ts`,
+  shared by the API and the buttons via `appointmentActions()`):
+  - Times are Bangkok, within `SHOP.hours` (Mon–Sat 08:00–17:00, 30-minute slots), at least
+    **2 hours** ahead and at most 60 days ahead (`bookingTimeError()`).
+  - A customer books for their **own** vehicle → `REQUESTED`; staff book for anyone (phone
+    bookings) → `CONFIRMED`. One upcoming (requested/confirmed) appointment per vehicle.
+  - Staff: confirm, reschedule, cancel, check in (any time before), no-show (confirmed and
+    past its time). Customers: cancel, and move a still-`REQUESTED` one — only until **2
+    hours before**; after that the page tells them to call the shop.
+  - **Check-in** = the normal check-in form prefilled (`/app/work-orders/new?appointment=…`,
+    mileage required): `POST /work-orders` with `appointmentId` creates the job and sets the
+    appointment `CHECKED_IN` + `workOrderId` in one transaction. The job's completion →
+    `COMPLETED`; its cancellation → `CANCELLED`.
+  - Customers see only their own (others → 404); mechanics none (403). For customers,
+    "upcoming" means still in the future — a request whose time passed unconfirmed shows
+    under Past as "Not confirmed"; staff still see it under Upcoming to resolve it.
+  - Every change is a conditional update + audit entry; the cancel reason lives in the audit
+    log. No emails yet (they come with SES in the reminder step, CLOUDAPPG3-118).
 - **Invoices** (`backend/src/invoices`): `INV-0001`, VAT 7%, amounts frozen at completion.
   - Advisors/admins see all; customers only their own (others → 404); mechanics none (403).
   - "Mark as paid" is just a flag (advisor/admin, once, conditional update) — who paid it
@@ -277,9 +297,11 @@ Target: feature-complete by **Nov 1, 2026**; Nov 2–10 is buffer, hardening, an
 1. **MVP (must ship):** auth + roles + staff management, Customer CRUD, Vehicle CRUD,
    Inventory CRUD, WorkOrder lifecycle (check-in → status transitions → parts-used with
    stock deduction → invoice on completion).
-2. **Stretch, in priority order:** invoice PDF to S3, reminder engine (ServiceRecommendation
-   + daily Lambda + SES email + "due for service" dashboard), Lite appointments, customer
-   portal views, reporting dashboard + CSV export.
+2. **Stretch, in priority order** (reordered Oct 22: appointments moved ahead of reminders,
+   reporting after them): ~~invoice PDF to S3~~ (done), ~~Lite appointments~~ (done),
+   reminder engine (ServiceRecommendation + daily Lambda + SES email + "due for service"
+   dashboard, plus the appointment confirmation/day-before emails), reporting dashboard +
+   CSV export, customer portal views.
 
 If a feature isn't in the MVP list above, don't build ahead of it — ask the team first,
 since scope is intentionally tight against the Nov deadline.
