@@ -352,8 +352,10 @@ npm run test:integration       # backend HTTP + real-Postgres tests (see below)
 - Production images, built from the repo root: `docker build -f backend/Dockerfile -t
   motormate-backend .` and `docker build -f frontend/Dockerfile -t motormate-frontend .`
   (each has its own ignore file: root `.dockerignore` / `frontend/Dockerfile.dockerignore`).
-  The backend applies migrations on start; the seed is compiled into it and runs with the
-  command `node dist-seed/prisma/seed.js`.
+  The API image has no Prisma CLI (that keeps it small): migrations run from a separate
+  image, `docker build -f backend/Dockerfile --target migrate`, once per deploy before the
+  API rolls out. The seed is compiled into the API image: `node dist-seed/prisma/seed.js`.
+  Whole app in containers locally: `docker compose --profile app up --build`.
 
 Seeded logins (password `password123`): `admin@`, `advisor@`, `mechanic@motormate.example`,
 customer `jordan.lee@example.com`.
@@ -410,12 +412,12 @@ Values that must agree **across files**:
 - Secrets (`JWT_SECRET`, `NEXTAUTH_SECRET`, DB password) are hidden (`NoEcho`) stack
   parameters; Secrets Manager is the production plan in the final document.
 - **`infra/`** (guide: `infra/README.md`): three CloudFormation stacks —
-  `motormate-base` (VPC, public + isolated subnets, security groups, ECR, log groups;
+  `motormate-base` (VPC, public + isolated subnets, security groups, ECR, ECS cluster, log groups;
   kept), `motormate-db` (RDS PostgreSQL 16 `db.t3.micro`, encrypted, 7-day backups;
   `--multi-az` in the demo account) and `motormate-app` (ALB, ECS cluster, API Gateway).
-  Scripts in `infra/scripts/` (Git Bash): `up.sh` (base → db + images in parallel → app →
-  seed), `down.sh` (deletes app + db — run at the end of every session), `smoke.sh`,
-  `status.sh`, `seed.sh`, `build-push.sh`, `nuke.sh --yes`. Secrets are generated per
+  Scripts in `infra/scripts/` (Git Bash): `up.sh` (base → db + images in parallel →
+  `migrate.sh` → app → seed), `down.sh` (deletes app + db — run at the end of every
+  session), `smoke.sh`, `status.sh`, `seed.sh`, `build-push.sh`, `nuke.sh --yes`. Secrets are generated per
   account into `infra/.secrets/<account>.env` (gitignored). Images are tagged with the
   git commit; re-running `up.sh` after a commit rolls out the new version.
 - Running cost ≈ $0.10/hour (3 Fargate tasks + public IPs, ALB, RDS). Prefer the AWS MCP
