@@ -1,0 +1,84 @@
+# Checks every pull request (and every push to main): typecheck, unit tests, and the
+# backend integration tests against a throwaway Postgres. Make "Typecheck & unit tests"
+# and "Integration tests" required checks on main so a red PR can't be merged.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to the same PR cancels the run that's still going.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Prisma's config reads DATABASE_URL even for `prisma generate`; nothing connects to it
+  # in the first job. The integration job points it at the service container below.
+  DATABASE_URL: postgresql://motormate:motormate@localhost:5432/motormate
+  JWT_SECRET: ci-only-secret
+
+jobs:
+  checks:
+    name: Typecheck & unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Uses the pnpm version pinned in package.json ("packageManager").
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # postinstall also builds packages/types.
+      - run: pnpm install --frozen-lockfile
+
+      - name: Generate the Prisma client
+        run: pnpm db:generate
+
+      - name: Typecheck (types, backend, frontend)
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: motormate
+          POSTGRES_PASSWORD: motormate
+          POSTGRES_DB: motormate_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U motormate"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://motormate:motormate@localhost:5432/motormate_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Generate the Prisma client
+        run: pnpm db:generate
+      # The test setup applies the migrations itself, then truncates between suites.
+      - name: Integration tests (real Postgres)
+        run: pnpm test:integration
