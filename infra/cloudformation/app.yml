@@ -9,6 +9,8 @@ Description: >-
 #                          ▼
 #                    ALB :80 ── /v1, /v1/* ──▶ backend service  (NestJS :8080)
 #                           └── everything else ──▶ frontend service (Next.js :3000)
+#
+#   EventBridge Scheduler (09:00, 18:30 Bangkok) ──▶ Lambda ──HTTPS──▶ POST /v1/jobs/<job>
 
 Parameters:
   BackendImage:
@@ -29,6 +31,10 @@ Parameters:
   NextAuthSecret:
     Type: String
     NoEcho: true
+  JobToken:
+    Type: String
+    NoEcho: true
+    Description: shared secret the daily-jobs Lambda sends to POST /v1/jobs/<job>
   BackendCount:
     Type: Number
     Default: 2
@@ -170,6 +176,8 @@ Resources:
             - { Name: JWT_SECRET, Value: !Ref JwtSecret }
             - { Name: INVOICE_BUCKET, Value: !ImportValue motormate-InvoiceBucket }
             - { Name: CORS_ORIGIN, Value: !GetAtt HttpApi.ApiEndpoint }
+            - { Name: NOTIFY_TOPIC_ARN, Value: !ImportValue motormate-NotifyTopic }
+            - { Name: JOB_TOKEN, Value: !Ref JobToken }
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -246,6 +254,68 @@ Resources:
           SecurityGroups: [!ImportValue motormate-FrontendSecurityGroup]
       LoadBalancers:
         - { ContainerName: frontend, ContainerPort: 3000, TargetGroupArn: !Ref FrontendTargetGroup }
+
+  # ── Daily jobs ───────────────────────────────────────────────────────────────
+  # The jobs live in the API (POST /v1/jobs/morning and /v1/jobs/close-day); this Lambda only
+  # calls them with the job token, and fails on an error status so Scheduler retries.
+  JobsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: motormate-daily-jobs
+      Description: Calls MotorMate's daily jobs (service reminders, closing the shop day)
+      Runtime: nodejs22.x
+      Handler: index.handler
+      Role: !Ref LabRoleArn
+      Timeout: 60
+      MemorySize: 128
+      Environment:
+        Variables:
+          JOBS_URL: !Sub "${HttpApi.ApiEndpoint}/v1/jobs"
+          JOB_TOKEN: !Ref JobToken
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            const job = event && event.job;
+            if (job !== "morning" && job !== "close-day") throw new Error("Unknown job: " + JSON.stringify(event));
+            const response = await fetch(process.env.JOBS_URL + "/" + job, {
+              method: "POST",
+              headers: { "x-job-token": process.env.JOB_TOKEN },
+              signal: AbortSignal.timeout(29000),
+            });
+            const body = await response.text();
+            console.log(job, response.status, body);
+            if (!response.ok) throw new Error(job + " failed with " + response.status);
+            return JSON.parse(body);
+          };
+
+  # Every day, in Bangkok time. The jobs only act on shop days, so Sundays are harmless.
+  MorningSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: motormate-morning
+      Description: Service reminder emails and tomorrow's appointment reminders
+      ScheduleExpression: cron(0 9 * * ? *)
+      ScheduleExpressionTimezone: Asia/Bangkok
+      FlexibleTimeWindow: { Mode: "OFF" }
+      Target:
+        Arn: !GetAtt JobsFunction.Arn
+        RoleArn: !Ref LabRoleArn
+        Input: '{"job":"morning"}'
+        RetryPolicy: { MaximumRetryAttempts: 2 }
+
+  CloseDaySchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: motormate-close-day
+      Description: Marks the day's no-shows and cancels requests that were never confirmed
+      ScheduleExpression: cron(30 18 * * ? *)
+      ScheduleExpressionTimezone: Asia/Bangkok
+      FlexibleTimeWindow: { Mode: "OFF" }
+      Target:
+        Arn: !GetAtt JobsFunction.Arn
+        RoleArn: !Ref LabRoleArn
+        Input: '{"job":"close-day"}'
+        RetryPolicy: { MaximumRetryAttempts: 2 }
 
 Outputs:
   SiteUrl:

@@ -25,8 +25,8 @@ Deadline: code freeze **Nov 10, 2026**, final presentation **Nov 17, 2026**.
 | Database | PostgreSQL — Docker locally, Amazon RDS in staging/prod |
 | Hosting | Both apps as Docker containers on AWS ECS Fargate behind **one** Application Load Balancer (`/v1/*` → backend, 2 tasks; everything else → frontend, 1 task), images in ECR. HTTPS from an API Gateway HTTP API in front of the ALB (Amplify is restricted and CloudFront denied in Learner Lab) |
 | File storage | Amazon S3 (invoice PDFs, vehicle photos) |
-| Email reminders | Amazon SES (sandbox — only verified recipient addresses) |
-| Scheduled jobs | Amazon EventBridge Scheduler + AWS Lambda (daily due-reminder check) |
+| Customer emails | Amazon SNS email subscriptions — SES is blocked in Learner Lab (see Reminders below) |
+| Scheduled jobs | Amazon EventBridge Scheduler (09:00 and 18:30 Bangkok) → AWS Lambda → the API's job endpoints |
 | Logging / monitoring | Amazon CloudWatch (ECS `awslogs` driver) |
 | CI | GitHub Actions (lint, typecheck, test on PR) |
 | Project management | Jira |
@@ -133,6 +133,9 @@ backend/src/
   work-orders/          check-in (incl. walk-in), status moves, notes, labour, parts used
                         (via StockService), recommendations, completion → invoice
   invoices/             invoice list/detail (customers scoped), mark as paid, PDF (S3)
+  notifications/        NotifierService (global): SNS subscriptions + sending, NotificationLog;
+                        the email texts (email-text.ts)
+  reminders/            Reminders page API, "Run daily jobs now", POST /jobs/:job (job token)
   appointments/         "Lite" booking: request, confirm, reschedule, cancel, no-show
                         (check-in itself is POST /work-orders with appointmentId)
   common/
@@ -183,11 +186,12 @@ schema before calling the API. List search and paging live in the URL.
 - **Invoice** — generated on WorkOrder completion: subtotal, VAT 7%, total, paid status,
   S3 key for the PDF.
 - **ServiceRecommendation** — "brake inspection due at 55,000 km": due mileage and/or
-  date; the reminder Lambda reads these (replaces the earlier "Reminder" entity).
+  date; the morning job emails them when due (replaces the earlier "Reminder" entity).
 - **Appointment** — "Lite" booking: customer requests a time, advisor confirms /
   reschedules / cancels, "Check in" creates the WorkOrder. No slot/capacity management.
-- **NotificationLog** — every email sent (reminders, appointment notices), prevents
-  double-sends.
+- **NotificationLog** — every email sent or failed (reminders, appointment notices), per
+  customer; prevents double-sends. Customer also stores its SNS subscription
+  (`notifySubscriptionArn`, `notifyEmail`, `notifyConfirmed`).
 - **AuditLog** — who changed what, when, for important records.
 
 ### Domain rules (decided — don't re-litigate)
@@ -222,7 +226,7 @@ schema before calling the API. List search and paging live in the URL.
     round-trips. They show on the vehicle's service history; the reminder job reads them.
 - **Appointments** (`backend/src/appointments`; rules in `packages/types/src/appointment.ts`,
   shared by the API and the buttons via `appointmentActions()`):
-  - Times are Bangkok, within `SHOP.hours` (Mon–Sat 08:00–17:00, 30-minute slots), at least
+  - Times are Bangkok, within `SHOP.hours` (Mon–Sat 08:00–18:00, 30-minute slots, last one 17:30), at least
     **2 hours** ahead and at most 60 days ahead (`bookingTimeError()`).
   - A customer books for their **own** vehicle → `REQUESTED`; staff book for anyone (phone
     bookings) → `CONFIRMED`. One upcoming (requested/confirmed) appointment per vehicle.
@@ -237,7 +241,45 @@ schema before calling the API. List search and paging live in the URL.
     "upcoming" means still in the future — a request whose time passed unconfirmed shows
     under Past as "Not confirmed"; staff still see it under Upcoming to resolve it.
   - Every change is a conditional update + audit entry; the cancel reason lives in the audit
-    log. No emails yet (they come with SES in the reminder step, CLOUDAPPG3-118).
+    log.
+  - **Emails:** when staff confirm, book (phone), move or cancel one, the customer is emailed
+    after the change is saved (a failed email never undoes it); customers' own changes send
+    nothing. Confirmed appointments get a reminder at 09:00 the day before — so one confirmed
+    after 09:00 for the next day (or the same day) only gets the confirmation email.
+  - **End of the shop day** (18:30 job, day ends at 18:00): `CONFIRMED` but not checked in →
+    `NO_SHOW`; `REQUESTED` never confirmed → `CANCELLED` ("Not confirmed in time"). Audit
+    entries with `actorId` null and `by: "system"`.
+- **Reminders** (`backend/src/reminders`, rules in `packages/types/src/reminder.ts`):
+  - An open recommendation is **due** 7 days before its due date (Bangkok calendar days) or
+    when the estimated odometer is within 1,000 km of its due mileage; **overdue** past
+    either. The estimate is the last reading + the average km/day between the vehicle's
+    visits (≥ 30 days apart), else 40 km/day (`estimateMileage()`).
+  - **Morning job (09:00):** one email per customer listing everything newly due (item →
+    `REMINDED`), plus **one** follow-up 30 days after the first if it's still open. Items are
+    only marked when the email went out — a customer who hasn't confirmed yet is tried again
+    the next day. Also the day-before appointment emails.
+  - Staff close items as **Done** or **Dismiss** (audited); there's no automatic closing.
+  - `/app/reminders` (admin/advisor): Due now / Overdue / Coming up / Sent emails, the
+    customer's email status, and **Run daily jobs now** (runs both jobs; safe any time).
+    Staff dashboards show "Due for service"; customers see "Service coming up".
+  - The jobs run as `POST /v1/jobs/morning|close-day` with header `x-job-token: $JOB_TOKEN`
+    (`@Public`; without `JOB_TOKEN` the endpoint is off). An inline Node Lambda calls it,
+    started by two EventBridge Scheduler schedules (`infra/cloudformation/app.yml`).
+- **Emails go through SNS, not SES** — SES is denied in Learner Lab. One topic
+  (`motormate-notifications`, base stack); every email address gets **one subscription
+  filtered on that address** (lower-cased), made automatically when the email is added
+  (sign-up, staff create/edit) and by the morning job's catch-up. AWS emails a confirmation
+  link once per address; until it's clicked, nothing reaches them (staff see "Email not
+  confirmed"). Keyed on the address, not the customer id, so a confirmed address stays
+  confirmed across database rebuilds and re-sign-ups. The morning job re-checks every
+  subscription, so one the customer unsubscribed from (AWS's link) goes back to "not
+  confirmed". Messages are plain text from "AWS Notifications" with AWS's unsubscribe link;
+  subjects start with `[MOTORMATE]` and are ASCII (plates only in the body). Delivery isn't
+  confirmed — only Sent/Failed. **Appointment emails that can't go out** (no email, or not
+  confirmed) are recorded as `SKIPPED` and show as "Not sent — call the customer" under
+  Sent emails; skipped service reminders aren't recorded, the next morning retries them.
+  Locally (no `NOTIFY_TOPIC_ARN`) emails are written to the backend log. SES with a
+  verified domain is the production plan (no per-address confirmation).
 - **Invoices** (`backend/src/invoices`): `INV-0001`, VAT 7%, amounts frozen at completion.
   - Advisors/admins see all; customers only their own (others → 404); mechanics none (403).
   - "Mark as paid" is just a flag (advisor/admin, once, conditional update) — who paid it
@@ -299,9 +341,8 @@ Target: feature-complete by **Nov 1, 2026**; Nov 2–10 is buffer, hardening, an
    stock deduction → invoice on completion).
 2. **Stretch, in priority order** (reordered Oct 22: appointments moved ahead of reminders,
    reporting after them): ~~invoice PDF to S3~~ (done), ~~Lite appointments~~ (done),
-   reminder engine (ServiceRecommendation + daily Lambda + SES email + "due for service"
-   dashboard, plus the appointment confirmation/day-before emails), reporting dashboard +
-   CSV export, customer portal views.
+   ~~reminder engine~~ (done — SNS email, see Reminders), reporting dashboard + CSV export,
+   customer portal views.
 
 If a feature isn't in the MVP list above, don't build ahead of it — ask the team first,
 since scope is intentionally tight against the Nov deadline.
@@ -404,7 +445,9 @@ files themselves are gitignored, never committed):
   On AWS only: `DATABASE_SSL_CA` — RDS requires SSL, so the pg driver verifies the server
   against the RDS certificate bundle baked into the image (`pgConfig()` in
   `backend/src/prisma/pg-config.ts`, used by PrismaService and the seed); `INVOICE_BUCKET`
-  — the S3 bucket for invoice PDFs (unset locally → PDFs come back inline).
+  — the S3 bucket for invoice PDFs (unset locally → PDFs come back inline);
+  `NOTIFY_TOPIC_ARN` — the SNS topic for customer emails (unset locally → logged);
+  `JOB_TOKEN` — the secret the daily-jobs Lambda sends (unset → `/jobs` is off).
 - `frontend/.env.example` — `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_API_URL`
   (includes `/v1`), and `API_INTERNAL_URL` (AWS only — see "API address" above).
 
@@ -439,12 +482,13 @@ Values that must agree **across files**:
   frontend is a container too), API Gateway HTTP APIs are allowed, only us-east-1/us-west-2,
   and resources **keep running and billing after the lab session ends** — tear down nightly.
   An ALB needs its own security group allowing inbound 80 (not the default SG).
-- Secrets (`JWT_SECRET`, `NEXTAUTH_SECRET`, DB password) are hidden (`NoEcho`) stack
+- Secrets (`JWT_SECRET`, `NEXTAUTH_SECRET`, DB password, `JOB_TOKEN`) are hidden (`NoEcho`) stack
   parameters; Secrets Manager is the production plan in the final document.
 - **`infra/`** (guide: `infra/README.md`): three CloudFormation stacks —
-  `motormate-base` (VPC, public + isolated subnets, security groups, ECR, ECS cluster, log groups;
-  kept), `motormate-db` (RDS PostgreSQL 16 `db.t3.micro`, encrypted, 7-day backups;
-  `--multi-az` in the demo account) and `motormate-app` (ALB, ECS cluster, API Gateway).
+  `motormate-base` (VPC, public + isolated subnets, security groups, ECR, ECS cluster, log groups,
+  invoice bucket, SNS topic; kept), `motormate-db` (RDS PostgreSQL 16 `db.t3.micro`, encrypted,
+  7-day backups; `--multi-az` in the demo account) and `motormate-app` (ALB, ECS services,
+  API Gateway, daily-jobs Lambda + 2 schedules).
   Scripts in `infra/scripts/` (Git Bash): `up.sh` (base → db + images in parallel →
   `migrate.sh` → app → seed), `down.sh` (deletes app + db — run at the end of every
   session), `smoke.sh`, `status.sh`, `seed.sh`, `build-push.sh`, `nuke.sh --yes`. Secrets are generated per
@@ -478,7 +522,7 @@ without the team deciding first.
 
 - Multi-branch/multi-location support (mentioned as a future NFR in the kickoff report,
   not part of this build).
-- SMS reminders (SNS) — only add if the email (SES) reminder flow is done with time to spare.
+- SMS reminders — SNS SMS is denied in Learner Lab; email only.
 - Cognito — replaced by NextAuth.js, don't reintroduce without discussion.
 - Appointment slot/capacity management, drag-and-drop calendars — appointments are "Lite".
 - Customer email verification — documented as the production plan only.

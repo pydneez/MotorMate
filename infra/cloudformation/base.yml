@@ -234,6 +234,23 @@ Resources:
                   - !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
                   - !Sub arn:aws:iam::${AWS::AccountId}:role/voclabs
 
+  # ── Customer emails ──────────────────────────────────────────────────────────
+  # SES is blocked in Learner Lab, so emails go through SNS: each customer with an email gets
+  # one subscription to this topic, filtered on their id (the API subscribes them; they
+  # confirm once from AWS's email). Kept between sessions so confirmations survive.
+  NotifyTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: motormate-notifications
+      DisplayName: MotorMate
+
+  # The daily-jobs Lambda's logs (Lambda writes to /aws/lambda/<function name>).
+  JobsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/motormate-daily-jobs
+      RetentionInDays: 14
+
   BackendLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -274,6 +291,9 @@ Outputs:
   InvoiceBucket:
     Value: !Ref InvoiceBucket
     Export: { Name: motormate-InvoiceBucket }
+  NotifyTopic:
+    Value: !Ref NotifyTopic
+    Export: { Name: motormate-NotifyTopic }
   BackendRepositoryUri:
     Value: !GetAtt BackendRepository.RepositoryUri
   FrontendRepositoryUri:

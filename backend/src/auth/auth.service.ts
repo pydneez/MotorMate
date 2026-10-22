@@ -4,12 +4,14 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  Optional,
   UnauthorizedException,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import * as bcrypt from "bcryptjs";
 import type { AuthUser, ChangePasswordInput, LoginInput, LoginResponse, RegisterData } from "@motormate/types";
 import { writeAudit } from "../common/utils/audit";
+import { NotifierService } from "../notifications/notifier.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 /** Access token lifetime — roughly one shop shift. */
@@ -42,6 +44,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    // Optional so unit tests can build the service without it.
+    @Optional() private readonly notifier?: NotifierService,
   ) {}
 
   async login({ email, password }: LoginInput): Promise<LoginResponse> {
@@ -132,6 +136,8 @@ export class AuthService {
       return { ...created, customer: { id: customer.id } };
     });
 
+    // Subscribe their email to notifications (AWS emails them a confirmation link).
+    await this.notifier?.syncCustomer(user.customer.id);
     return this.issueToken(toAuthUser(user));
   }
 

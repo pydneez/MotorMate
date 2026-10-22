@@ -43,6 +43,11 @@ load_secrets() {
     } > "$file"
     info "generated new secrets in infra/.secrets/$ACCOUNT_ID.env"
   fi
+  # Added in Step 5 — older secrets files get it on their next run.
+  if ! grep -q '^JOB_TOKEN=' "$file"; then
+    echo "JOB_TOKEN=$(openssl rand -hex 32)" >> "$file"
+    info "added JOB_TOKEN to infra/.secrets/$ACCOUNT_ID.env"
+  fi
   # shellcheck disable=SC1090
   source "$file"
 }

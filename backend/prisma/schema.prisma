@@ -56,6 +56,8 @@ enum AppointmentStatus {
 enum NotificationType {
   SERVICE_REMINDER
   APPOINTMENT_CONFIRMED
+  APPOINTMENT_RESCHEDULED
+  APPOINTMENT_CANCELLED
   APPOINTMENT_REMINDER
   INVOICE_ISSUED
 }
@@ -64,6 +66,8 @@ enum NotificationStatus {
   PENDING
   SENT
   FAILED
+  /// Not sent: no email, or (on AWS) the customer hasn't confirmed their subscription.
+  SKIPPED
 }
 
 // ─── Accounts ────────────────────────────────────────────────────────────────
@@ -107,8 +111,16 @@ model Customer {
   user   User?   @relation(fields: [userId], references: [id])
   userId String? @unique
 
-  vehicles     Vehicle[]
-  appointments Appointment[]
+  /// Email notifications go through an SNS topic: one subscription per customer, filtered
+  /// on their id. Set when subscribed; the customer confirms it once from AWS's email.
+  notifySubscriptionArn String?
+  /// The email the subscription was made for — a different current email means re-subscribe.
+  notifyEmail           String?
+  notifyConfirmed       Boolean @default(false)
+
+  vehicles      Vehicle[]
+  appointments  Appointment[]
+  notifications NotificationLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -336,9 +348,13 @@ model Appointment {
 model NotificationLog {
   id               String                 @id @default(cuid())
   type             NotificationType
-  recipientEmail   String
+  /// Null when skipped because the customer has no email.
+  recipientEmail   String?
   status           NotificationStatus     @default(PENDING)
   error            String?
+  subject          String?
+  customer         Customer?              @relation(fields: [customerId], references: [id])
+  customerId       String?
   recommendation   ServiceRecommendation? @relation(fields: [recommendationId], references: [id])
   recommendationId String?
   appointment      Appointment?           @relation(fields: [appointmentId], references: [id])
@@ -347,6 +363,7 @@ model NotificationLog {
   createdAt        DateTime               @default(now())
 
   @@index([type, createdAt])
+  @@index([customerId])
 }
 
 // ─── Audit ───────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   normalizePlate,
@@ -18,6 +18,7 @@ import type { z } from "zod";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { phoneSearchFragment } from "../common/utils/phone-search";
+import { NotifierService } from "../notifications/notifier.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { toVehicleSummary, vehicleSummaryInclude } from "../vehicles/vehicle.mapper";
 
@@ -51,7 +52,11 @@ function tokenFilter(token: string): Prisma.CustomerWhereInput {
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so unit tests can build the service without it.
+    @Optional() private readonly notifier?: NotifierService,
+  ) {}
 
   async list(query: ListQuery): Promise<Paginated<CustomerSummary>> {
     const where: Prisma.CustomerWhereInput = { AND: searchTokens(query.q).map(tokenFilter) };
@@ -79,11 +84,14 @@ export class CustomersService {
 
   async create(actor: AuthUser, input: CreateCustomerData): Promise<CustomerSummary> {
     if (input.email) await this.assertEmailFree(input.email);
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const customer = await tx.customer.create({ data: input, include: summaryInclude });
       await writeAudit(tx, { actorId: actor.id, action: "customer.created", entity: "Customer", entityId: customer.id });
       return toSummary(customer);
     });
+    // With an email, subscribe it to notifications (AWS emails them a confirmation link).
+    if (input.email) await this.notifier?.syncCustomer(created.id);
+    return created;
   }
 
   async update(actor: AuthUser, id: string, input: UpdateCustomerData): Promise<CustomerSummary> {
@@ -101,7 +109,7 @@ export class CustomersService {
     const changes = diffFields(customer, input);
     if (Object.keys(changes).length === 0) return this.summary(id);
 
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.customer.update({ where: { id }, data: input, include: summaryInclude });
       // A portal customer signs in with this email, so keep their login in step.
       if (emailChanged && input.email && customer.userId) {
@@ -110,6 +118,9 @@ export class CustomersService {
       await writeAudit(tx, { actorId: actor.id, action: "customer.updated", entity: "Customer", entityId: id, changes });
       return toSummary(updated);
     });
+    // A new or removed email changes their notification subscription.
+    if (emailChanged) await this.notifier?.syncCustomer(id);
+    return updated;
   }
 
   /** Possible duplicates for the warning shown before saving. Never throws on a match. */
