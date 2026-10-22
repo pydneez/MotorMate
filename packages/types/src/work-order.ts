@@ -87,6 +87,11 @@ export const CreateWorkOrderSchema = z.object({
     .string()
     .optional()
     .transform((value) => value || undefined),
+  /** Checking in a booked appointment: it's linked to the new job in the same transaction. */
+  appointmentId: z
+    .string()
+    .optional()
+    .transform((value) => value || undefined),
 });
 
 export type CreateWorkOrderInput = z.input<typeof CreateWorkOrderSchema>;

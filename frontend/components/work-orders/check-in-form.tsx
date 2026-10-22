@@ -17,7 +17,7 @@ import { formValues, useApi, useFormSubmit } from "@/lib/client";
 import { formatKm, fullName } from "@/lib/format";
 
 /** Search vehicles by plate, VIN or owner and pick one. */
-function VehiclePicker({ onPick }: { onPick: (vehicle: VehicleSummary) => void }) {
+export function VehiclePicker({ onPick }: { onPick: (vehicle: VehicleSummary) => void }) {
   const callApi = useApi();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<VehicleSummary[]>([]);
@@ -101,8 +101,20 @@ export function MechanicSelect({ mechanics, error }: { mechanics: MechanicOption
   );
 }
 
-/** Check-in: pick the vehicle, record the mileage and the customer's complaint, optionally assign. */
-export function CheckInForm({ initialVehicle, mechanics }: { initialVehicle: VehicleSummary | null; mechanics: MechanicOption[] }) {
+/**
+ * Check-in: pick the vehicle, record the mileage and the customer's complaint, optionally
+ * assign. Checking in a booked appointment fixes the vehicle, prefills the complaint with
+ * the booking reason, and links the appointment to the new job.
+ */
+export function CheckInForm({
+  initialVehicle,
+  mechanics,
+  appointment,
+}: {
+  initialVehicle: VehicleSummary | null;
+  mechanics: MechanicOption[];
+  appointment?: { id: string; reason: string };
+}) {
   const router = useRouter();
   const callApi = useApi();
   const { fieldErrors, error, submitting, validate, setError } = useFormSubmit();
@@ -113,7 +125,11 @@ export function CheckInForm({ initialVehicle, mechanics }: { initialVehicle: Veh
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setOpenJobId(null);
-    const body = validate(CreateWorkOrderSchema, { ...formValues(event.currentTarget), vehicleId: vehicle?.id ?? "" });
+    const body = validate(CreateWorkOrderSchema, {
+      ...formValues(event.currentTarget),
+      vehicleId: vehicle?.id ?? "",
+      appointmentId: appointment?.id ?? "",
+    });
     if (!body) return;
     setSaving(true);
     try {
@@ -147,9 +163,11 @@ export function CheckInForm({ initialVehicle, mechanics }: { initialVehicle: Veh
               </p>
             </div>
           </div>
-          <button type="button" onClick={() => setVehicle(null)} aria-label="Choose another vehicle" className="rounded p-1 text-slate-400 hover:bg-slate-200">
-            <X className="h-4 w-4" />
-          </button>
+          {!appointment && (
+            <button type="button" onClick={() => setVehicle(null)} aria-label="Choose another vehicle" className="rounded p-1 text-slate-400 hover:bg-slate-200">
+              <X className="h-4 w-4" />
+            </button>
+          )}
         </div>
       ) : (
         <>
@@ -167,7 +185,13 @@ export function CheckInForm({ initialVehicle, mechanics }: { initialVehicle: Veh
         hint={vehicle ? `Last recorded ${formatKm(vehicle.mileage)}` : undefined}
         error={fieldErrors.mileageIn}
       />
-      <TextAreaField label="Customer's complaint" name="complaint" placeholder="e.g. Brakes squeal when stopping" error={fieldErrors.complaint} />
+      <TextAreaField
+        label="Customer's complaint"
+        name="complaint"
+        placeholder="e.g. Brakes squeal when stopping"
+        defaultValue={appointment?.reason}
+        error={fieldErrors.complaint}
+      />
       <MechanicSelect mechanics={mechanics} error={fieldErrors.mechanicId} />
 
       {error && (

@@ -168,6 +168,7 @@ export class WorkOrdersService {
       });
     }
     if (input.mechanicId) await this.assertMechanic(input.mechanicId);
+    if (input.appointmentId) await this.assertCanCheckInAppointment(input.appointmentId, vehicle.id);
 
     const id = await this.prisma.$transaction(async (tx) => {
       const workOrder = await tx.workOrder.create({
@@ -185,11 +186,36 @@ export class WorkOrdersService {
         action: "workOrder.created",
         entity: "WorkOrder",
         entityId: workOrder.id,
-        changes: { vehicleId: vehicle.id, mileageIn: input.mileageIn, mechanicId: input.mechanicId ?? null },
+        changes: { vehicleId: vehicle.id, mileageIn: input.mileageIn, mechanicId: input.mechanicId ?? null, appointmentId: input.appointmentId ?? null },
       });
+      if (input.appointmentId) {
+        // Conditional, so an appointment cancelled or checked in meanwhile rolls the job back too.
+        const { count } = await tx.appointment.updateMany({
+          where: { id: input.appointmentId, status: { in: ["REQUESTED", "CONFIRMED"] }, workOrderId: null },
+          data: { status: "CHECKED_IN", workOrderId: workOrder.id },
+        });
+        if (count === 0) throw new ConflictException("This appointment was just changed by someone else. Refresh and try again.");
+        await writeAudit(tx, {
+          actorId: actor.id,
+          action: "appointment.checkedIn",
+          entity: "Appointment",
+          entityId: input.appointmentId,
+          changes: { workOrderId: workOrder.id },
+        });
+      }
       return workOrder.id;
     });
     return this.findOne(id);
+  }
+
+  /** Checking in a booked appointment: it must be for this vehicle and still to happen. */
+  private async assertCanCheckInAppointment(appointmentId: string, vehicleId: string): Promise<void> {
+    const appointment = await this.prisma.appointment.findUnique({ where: { id: appointmentId }, select: { vehicleId: true, status: true } });
+    if (!appointment) throw new NotFoundException("Appointment not found");
+    if (appointment.vehicleId !== vehicleId) throw new BadRequestException("That appointment is for a different vehicle");
+    if (appointment.status !== "REQUESTED" && appointment.status !== "CONFIRMED") {
+      throw new ConflictException(`That appointment is already ${appointment.status === "NO_SHOW" ? "a no-show" : appointment.status.toLowerCase().replace("_", " ")}`);
+    }
   }
 
   /**
@@ -337,6 +363,8 @@ export class WorkOrdersService {
           });
         }
         await tx.partUsed.deleteMany({ where: { workOrderId: id } });
+        // A booked visit whose job is cancelled is cancelled too.
+        await tx.appointment.updateMany({ where: { workOrderId: id, status: "CHECKED_IN" }, data: { status: "CANCELLED" } });
       }
       await tx.workOrder.update({ where: { id }, data: { status: to } });
       await tx.workOrderStatusChange.create({
@@ -378,6 +406,8 @@ export class WorkOrdersService {
           data: { workOrderId: id, subtotal: totals.subtotal, vatRate: totals.vatRate, vatAmount: totals.vat, total: totals.total },
         });
         await tx.workOrder.update({ where: { id }, data: { status: "COMPLETED", completedAt: new Date() } });
+        // The booked visit (if any) is done too.
+        await tx.appointment.updateMany({ where: { workOrderId: id, status: "CHECKED_IN" }, data: { status: "COMPLETED" } });
         // Conditional, so a higher reading recorded meanwhile is never lowered.
         await tx.vehicle.updateMany({
           where: { id: workOrder.vehicleId, mileage: { lt: workOrder.mileageIn } },

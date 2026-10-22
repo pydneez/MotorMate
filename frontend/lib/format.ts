@@ -35,6 +35,22 @@ export function shortVin(vin: string): string {
   return `…${vin.slice(-6)}`;
 }
 
+/** Thu 23 Oct 2026, 10:00 (Bangkok time) — appointment times. */
+export function formatAppointmentTime(value: string | Date): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: TIME_ZONE,
+  }).formatToParts(new Date(value));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("weekday")} ${get("day")} ${get("month")} ${get("year")}, ${get("hour")}:${get("minute")}`;
+}
+
 /** 20 Oct 14:02 (Bangkok time) */
 export function formatDateTime(value: string | Date): string {
   return new Intl.DateTimeFormat("en-GB", {
