@@ -1,12 +1,18 @@
+# Local development database only — the apps themselves run with `npm run dev:*` (see
+# README). Settings come from the root .env (copy .env.example).
+#
+# Ports are published on 127.0.0.1 only, so the local dev passwords can't be reached from
+# other machines on the same network.
 services:
   postgres:
+    # Same major version as RDS on AWS.
     image: postgres:16-alpine
     container_name: motormate-postgres
     restart: unless-stopped
     ports:
-      # Host port 5433 -> container 5432. Host 5432 is reserved on this machine by a
-      # native PostgreSQL install; the container always listens on 5432 internally.
-      - "5433:5432"
+      # Host port 5433 -> container 5432, so it doesn't clash with a natively installed
+      # PostgreSQL on 5432; the container always listens on 5432 internally.
+      - "127.0.0.1:5433:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -19,14 +25,14 @@ services:
       timeout: 5s
       retries: 10
 
-  # Optional GUI for browsing the database — comment out if you prefer
-  # `npm run db:studio` instead.
+  # Optional GUI for browsing the database at http://localhost:5050 — comment out if you
+  # prefer `npm run db:studio` instead.
   pgadmin:
-    image: dpage/pgadmin4:latest
+    image: dpage/pgadmin4:9.18
     container_name: motormate-pgadmin
     restart: unless-stopped
     ports:
-      - "5050:80"
+      - "127.0.0.1:5050:80"
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}

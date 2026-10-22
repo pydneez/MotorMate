@@ -331,7 +331,8 @@ See `README.md` for full setup steps. Quick reference:
 ```bash
 docker compose up -d          # start local Postgres
 pnpm install                  # install all workspace deps
-npm run db:migrate             # apply schema to local DB — alias for `pnpm --filter backend exec prisma migrate dev`
+npm run db:migrate             # apply schema to local DB (`prisma migrate dev`), then `npm run db:generate`
+npm run db:generate            # regenerate the Prisma client — Prisma 7's migrate no longer does it
 npm run db:seed                # populate sample data — alias for `pnpm --filter backend exec prisma db seed`
 npm run dev:backend            # build packages/types, then run backend (NestJS) on :8080/v1
 npm run dev:frontend           # build packages/types, then run frontend (Next.js) on :3000
