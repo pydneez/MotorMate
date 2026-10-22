@@ -4,10 +4,7 @@ A cloud-based Car Maintenance & Service Management System — centralizes custom
 vehicle records, tracks full service history, manages the work-order lifecycle, tracks
 parts inventory, and sends maintenance reminders.
 
-DES424 Cloud-based Application Development · Thammasat SIIT
-
-For architecture, stack decisions, and conventions, see [`CLAUDE.md`](./CLAUDE.md) — it's
-kept up to date as the single source of truth and doubles as onboarding context.
+DES424 Cloud-based Application Development ·  SIIT, Thammasat University
 
 ## Tech stack
 
@@ -21,7 +18,6 @@ Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · A
 - [Node.js 22 LTS](https://nodejs.org/)
 - pnpm 11 — the repo pins the exact version; the simplest way to get it is
   `corepack enable` (ships with Node), or `npm install -g pnpm@11`
-- Access to the GitHub repository (the owner adds you under **Settings → Collaborators**)
 
 On Windows, run the commands in Git Bash or PowerShell from the repo folder.
 
@@ -29,22 +25,18 @@ On Windows, run the commands in Git Bash or PowerShell from the repo folder.
 
 1. **Clone the repo**
    ```bash
-   git clone <repo-url> MotorMate
+   git clone https://github.com/pydneez/MotorMate
    cd MotorMate
    ```
 
-2. **Copy environment files** — there are three separate `.env.example` files, each
-   scoped to what that part of the app actually reads (root for Docker Compose, one per
-   app):
+2. **Copy environment files**
    ```bash
    cp .env.example .env
    cp backend/.env.example backend/.env
    cp frontend/.env.example frontend/.env
    ```
-   The defaults work as-is — no edits needed. They're **local-only** development values
-   (your database only listens on your own machine), so there's nothing to ask a teammate
-   for and nothing to keep secret. Never reuse them on AWS; the deploy scripts generate
-   their own.
+   They're **local-only** development values
+   Never reuse them on AWS; the deploy scripts generate their own.
 
 3. **Start the local database**
    ```bash
@@ -69,8 +61,7 @@ On Windows, run the commands in Git Bash or PowerShell from the repo folder.
    npm run db:migrate
    npm run db:seed
    ```
-   `db:migrate` creates the tables and then generates the Prisma client (the typed
-   database code the backend uses — Prisma 7 no longer does that step on its own).
+   `db:migrate` creates the tables and then generates the Prisma client.
    Sample logins (all with password `password123`): `admin@motormate.example`,
    `advisor@motormate.example`, `mechanic@motormate.example`, and the customer
    `jordan.lee@example.com`.
@@ -80,30 +71,21 @@ On Windows, run the commands in Git Bash or PowerShell from the repo folder.
    npm run dev:backend     # backend API on http://localhost:8080/v1
    npm run dev:frontend    # frontend on http://localhost:3000
    ```
-   Run these in two terminal tabs. `npm run` just looks up the script name in
-   `package.json` — pnpm still needs to be installed, since each script's body is
-   `pnpm --filter <name> dev` (`--filter` runs a script in one workspace package,
-   matched by its `package.json` `name` (`backend`/`frontend`), not its directory name).
-   Both scripts first build the shared `packages/types` package (`npm run build:types`);
-   if you edit shared types while the apps are running, re-run that command.
 
 7. **Open the app** at http://localhost:3000 and sign in with one of the sample logins
-   above — each role (admin, advisor, mechanic, customer) sees a different dashboard.
+   above to sees a different dashboard.
 
 ### Just want to try the app? (Docker only)
 
-If you only want to test the app — not develop it — you don't need Node or pnpm. After
-steps 1–2 (clone, copy the env files), run:
+If you only want to test the app (not develop it), After steps 1–2 (clone, copy the env files), run:
 
 ```bash
 docker compose --profile app up --build
 ```
 
 This builds the same container images that run on AWS, sets up the database (migrations
-and sample data), and serves the app at http://localhost:3000 — sign in with the sample
-logins above. The first build takes a few minutes. Stop it with `Ctrl+C`, then
-`docker compose --profile app down`. It uses ports 3000 and 8080, so stop any
-`npm run dev:*` servers first.
+and sample data), and serves the app at http://localhost:3000. 
+Stop with `Ctrl+C`, then `docker compose --profile app down`. 
 
 ### Something not working?
 
@@ -144,19 +126,15 @@ The tests apply migrations to it automatically and wipe it before and after each
 
 ## Working with teammates
 
-Everyone runs their **own** local Postgres via Docker — nobody shares a database for
-day-to-day dev. To keep local data consistent enough to be useful:
+Everyone runs their **own** local Postgres via Docker. To keep local data consistent enough to be useful:
 
 - Always pull and run new Prisma migrations after pulling `main` (`npm run db:migrate`).
 - Use `npm run db:seed` to populate sample data (one login per role, three customers
   with Thai phone numbers and plates, ten inventory parts, an open and a completed work
-  order, and a pending appointment) instead of hand-creating test records. Safe to
-  re-run — it won't duplicate rows.
+  order, and a pending appointment). Safe to re-run — it won't duplicate rows.
 - Never commit `.env` — only `.env.example` should be in git. Local `.env` values
   (database password, `JWT_SECRET`, `NEXTAUTH_SECRET`) are per machine and never need
   sharing; AWS secrets are generated per account into the gitignored `infra/.secrets/`.
-  If a real secret ever must be shared, use a shared password-manager vault (e.g.
-  Bitwarden or 1Password) — never Git, chat, or Jira.
 
 ## Deploying to AWS
 
