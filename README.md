@@ -9,7 +9,7 @@ DES424 Cloud-based Application Development ·  SIIT, Thammasat University
 ## Tech stack
 
 Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · AWS
-(ECS Fargate containers behind an ALB, API Gateway for HTTPS, RDS, S3, SES, EventBridge)
+(ECS Fargate containers behind an ALB, API Gateway for HTTPS, RDS, S3, SNS email, EventBridge Scheduler + Lambda)
 
 ## Prerequisites
 
