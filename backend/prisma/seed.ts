@@ -2,7 +2,7 @@ import "dotenv/config";
 import { Prisma, PrismaClient, Role } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import * as bcrypt from "bcryptjs";
-import { normalizePlate, normalizeThaiPhone, VAT_RATE } from "@motormate/types";
+import { bangkokParts, normalizePlate, normalizeThaiPhone, VAT_RATE } from "@motormate/types";
 import { pgConfig } from "../src/prisma/pg-config";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg(pgConfig()) });
@@ -168,6 +168,14 @@ async function main() {
               vehicleId: civic.id,
               description: "Brake inspection",
               dueMileage: 45000,
+              createdById: mechanic.id,
+            },
+            // Due within the reminder window, so the Reminders page and "Run daily jobs now"
+            // have something to show. Due dates are calendar days stored at UTC midnight.
+            {
+              vehicleId: civic.id,
+              description: "Air-conditioning check",
+              dueDate: new Date(`${bangkokParts(new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)).date}T00:00:00.000Z`),
               createdById: mechanic.id,
             },
           ],
