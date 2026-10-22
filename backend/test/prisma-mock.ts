@@ -32,6 +32,7 @@ export function createPrismaMock() {
     stockMovement: model(),
     invoice: model(),
     serviceRecommendation: model(),
+    notificationLog: { ...model(), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
     workOrder: model(),
     workOrderStatusChange: model(),
     serviceItem: model(),
