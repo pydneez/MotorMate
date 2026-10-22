@@ -132,7 +132,7 @@ backend/src/
   inventory/            catalogue + StockService (the only code that changes stock levels)
   work-orders/          check-in (incl. walk-in), status moves, notes, labour, parts used
                         (via StockService), recommendations, completion → invoice
-  invoices/             invoice list/detail (customers scoped), mark as paid
+  invoices/             invoice list/detail (customers scoped), mark as paid, PDF (S3)
   common/
     decorators/          @Public, @Roles, @CurrentUser
     guards/              JwtAuthGuard, RolesGuard (both global)
@@ -224,8 +224,15 @@ schema before calling the API. List search and paging live in the URL.
     comes from the `invoice.paid` audit entry, so there is no extra column. No payment
     integration, no un-paying, `VOID` unused for now.
   - Printing uses the browser's print dialog; the app shell is hidden with `print:hidden`.
-    Shop details on the invoice are placeholders in `frontend/lib/shop.ts`. The PDF-to-S3
-    version is stretch ticket CLOUDAPPG3-45.
+    Shop details are placeholders in `SHOP` (`packages/types/src/shop.ts`), shared by the
+    page and the PDF.
+  - **PDF** (`GET /invoices/:id/pdf` → `{ url, filename }`, same access as the invoice;
+    `InvoicePdfService` + `renderInvoicePdf()` in `backend/src/invoices`): pdfkit with the
+    embedded Sarabun Thai font (`backend/assets/fonts`, OFL). It's the invoice **as issued
+    — no paid stamp**, so a stored copy never goes stale. With `INVOICE_BUCKET` (AWS) it's
+    generated on first download, stored at `invoices/<invoiceId>/INV-0001.pdf` (key in
+    `Invoice.pdfKey`, set once) and served as a 5-minute presigned S3 link; regenerated if
+    the object is missing. Without a bucket (local) it's returned inline as a `data:` URL.
 - **Stock is deducted when a part is logged** on a work order (it reserves the part), and
   returned when the part is removed or the work order is cancelled. Every change writes a
   `StockMovement` in the same DB transaction.
@@ -374,7 +381,8 @@ files themselves are gitignored, never committed):
 - `backend/.env.example` — `DATABASE_URL` (Prisma), `JWT_SECRET`, `PORT`, `CORS_ORIGIN`.
   On AWS only: `DATABASE_SSL_CA` — RDS requires SSL, so the pg driver verifies the server
   against the RDS certificate bundle baked into the image (`pgConfig()` in
-  `backend/src/prisma/pg-config.ts`, used by PrismaService and the seed).
+  `backend/src/prisma/pg-config.ts`, used by PrismaService and the seed); `INVOICE_BUCKET`
+  — the S3 bucket for invoice PDFs (unset locally → PDFs come back inline).
 - `frontend/.env.example` — `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `NEXT_PUBLIC_API_URL`
   (includes `/v1`), and `API_INTERNAL_URL` (AWS only — see "API address" above).
 

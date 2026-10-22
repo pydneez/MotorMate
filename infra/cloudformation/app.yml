@@ -168,6 +168,7 @@ Resources:
             # RDS requires SSL; the image carries AWS's RDS certificate bundle.
             - { Name: DATABASE_SSL_CA, Value: /app/rds-global-bundle.pem }
             - { Name: JWT_SECRET, Value: !Ref JwtSecret }
+            - { Name: INVOICE_BUCKET, Value: !ImportValue motormate-InvoiceBucket }
             - { Name: CORS_ORIGIN, Value: !GetAtt HttpApi.ApiEndpoint }
           LogConfiguration:
             LogDriver: awslogs

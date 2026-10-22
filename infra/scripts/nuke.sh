@@ -28,6 +28,14 @@ if [ "$APPLY" != true ]; then
 fi
 
 for stack in "$APP_STACK" "$DB_STACK" "$BASE_STACK"; do
+  if [ "$stack" = "$BASE_STACK" ] && [ "$(stack_status "$BASE_STACK")" != "NONE" ]; then
+    # CloudFormation can't delete a bucket that still has objects in it.
+    bucket="$(stack_output "$BASE_STACK" InvoiceBucket)"
+    if [ -n "$bucket" ] && [ "$bucket" != "None" ]; then
+      step "Emptying s3://$bucket (invoice PDFs)"
+      aws s3 rm "s3://$bucket" --recursive --only-show-errors
+    fi
+  fi
   step "Deleting $stack"
   delete_stack "$stack"
 done

@@ -7,4 +7,5 @@ export * from "./customer";
 export * from "./vehicle";
 export * from "./work-order";
 export * from "./invoice";
+export * from "./shop";
 export * from "./inventory";

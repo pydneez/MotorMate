@@ -17,7 +17,7 @@ Browser ──HTTPS──▶ API Gateway HTTP API  (https://<id>.execute-api.us-
 
 | Stack | Template | What's in it | After `down.sh` |
 |---|---|---|---|
-| `motormate-base` | `cloudformation/base.yml` | VPC, 2 public + 2 isolated subnets, security groups, ECR repos (backend, migrate, frontend), ECS cluster, log groups | kept (free) |
+| `motormate-base` | `cloudformation/base.yml` | VPC, 2 public + 2 isolated subnets, security groups, ECR repos (backend, migrate, frontend), ECS cluster, invoice-PDF S3 bucket (private, encrypted, HTTPS-only, LabRole/voclabs only), log groups | kept (pennies) |
 | `motormate-db` | `cloudformation/db.yml` | RDS PostgreSQL 16, `db.t3.micro`; the migrate task definition | deleted (re-seeded by `up.sh`) |
 | `motormate-app` | `cloudformation/app.yml` | load balancer, 2 ECS services, API Gateway | deleted |
 
