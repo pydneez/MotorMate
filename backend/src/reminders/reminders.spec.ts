@@ -172,10 +172,12 @@ describe("NotifierService", () => {
 
   /** Answers SNS commands by name. */
   function snsMock(answers: Record<string, unknown>) {
-    return jest.spyOn(SNSClient.prototype, "send").mockImplementation((command: { constructor: { name: string } }) => {
+    // A plain jest.Mock, so the implementation isn't matched against send()'s callback overload.
+    const send = jest.spyOn(SNSClient.prototype, "send") as unknown as jest.Mock;
+    return send.mockImplementation((command: { constructor: { name: string } }) => {
       const answer = answers[command.constructor.name];
       return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer ?? {});
-    }) as unknown as jest.Mock;
+    });
   }
   const newCustomer = { id: "cust-1", email: "Jordan@Example.com", notifySubscriptionArn: null, notifyEmail: null, notifyConfirmed: false };
 
