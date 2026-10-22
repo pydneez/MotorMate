@@ -17,9 +17,9 @@ Browser ──HTTPS──▶ API Gateway HTTP API  (https://<id>.execute-api.us-
 
 | Stack | Template | What's in it | After `down.sh` |
 |---|---|---|---|
-| `motormate-base` | `cloudformation/base.yml` | VPC, 2 public + 2 isolated subnets, security groups, ECR repos, log groups | kept (free) |
-| `motormate-db` | `cloudformation/db.yml` | RDS PostgreSQL 16, `db.t3.micro` | deleted (re-seeded by `up.sh`) |
-| `motormate-app` | `cloudformation/app.yml` | load balancer, ECS cluster + 2 services, API Gateway | deleted |
+| `motormate-base` | `cloudformation/base.yml` | VPC, 2 public + 2 isolated subnets, security groups, ECR repos (backend, migrate, frontend), ECS cluster, log groups | kept (free) |
+| `motormate-db` | `cloudformation/db.yml` | RDS PostgreSQL 16, `db.t3.micro`; the migrate task definition | deleted (re-seeded by `up.sh`) |
+| `motormate-app` | `cloudformation/app.yml` | load balancer, 2 ECS services, API Gateway | deleted |
 
 Why it looks like this (Learner Lab limits, tested Oct 2026): CloudFront is denied and
 Amplify's role is restricted, so HTTPS comes from API Gateway and the frontend is a
@@ -55,8 +55,9 @@ Sign in with the seeded logins (password `password123`): `admin@`, `advisor@`,
 
 | Script | What it does |
 |---|---|
-| `up.sh [--multi-az]` | base → database + images (in parallel) → app → seed. Safe to re-run: it updates what changed. `--multi-az` for the demo account. |
-| `build-push.sh` | builds both images, tags them with the git commit (`-dirty` if uncommitted), pushes to ECR. Skips images already pushed. |
+| `up.sh [--multi-az]` | base → database + images (in parallel) → migrations → app → seed. Safe to re-run: it updates what changed. `--multi-az` for the demo account. |
+| `build-push.sh` | builds the three images (backend, migrate, frontend), tags them with the git commit (`-dirty` if uncommitted), pushes to ECR. Skips images already pushed. |
+| `migrate.sh` | runs `prisma migrate deploy` as a one-off container from the small migrate image. |
 | `seed.sh` | runs the seed as a one-off backend container (`node dist-seed/prisma/seed.js`); upserts, so re-running is harmless. |
 | `smoke.sh` | end-to-end check through the HTTPS address. |
 | `status.sh` | stack states, running containers, database, cost per hour. |
@@ -72,7 +73,12 @@ into `infra/.secrets/<account-id>.env` (gitignored) and passed to CloudFormation
 
 Commit, then run `up.sh` again: it builds images for the new commit and ECS rolls the
 containers over one at a time (the backend keeps one container serving). Database
-migrations run automatically when the backend starts.
+migrations run first, as a one-off task (`migrate.sh`), so new containers never start
+against an old schema. The API image doesn't contain the Prisma CLI — that's what keeps it
+small — so migrations have their own image.
+
+Upgrading an environment created before the migrate step existed: run `down.sh` first —
+the ECS cluster moved from the app stack to the base stack.
 
 ## Demo account (Nov 8–17)
 

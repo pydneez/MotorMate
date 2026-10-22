@@ -11,7 +11,9 @@
 #   API_INTERNAL_URL  how the Next.js server reaches the backend, e.g. http://<load balancer>/v1
 
 # ── 1. Build: install the workspace, compile types, build the standalone server ──
-FROM node:22-bookworm-slim AS build
+FROM node:22-alpine AS build
+# Next.js's recommended compatibility layer for its native SWC compiler on Alpine (build only).
+RUN apk add --no-cache libc6-compat
 RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
 WORKDIR /repo
 
@@ -30,7 +32,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @motormate/types build && pnpm --filter frontend build
 
 # ── 2. Runtime: only the standalone server and static assets, non-root user ──
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-alpine AS runtime
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 

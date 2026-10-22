@@ -90,6 +90,21 @@ On Windows, run the commands in Git Bash or PowerShell from the repo folder.
 7. **Open the app** at http://localhost:3000 and sign in with one of the sample logins
    above — each role (admin, advisor, mechanic, customer) sees a different dashboard.
 
+### Just want to try the app? (Docker only)
+
+If you only want to test the app — not develop it — you don't need Node or pnpm. After
+steps 1–2 (clone, copy the env files), run:
+
+```bash
+docker compose --profile app up --build
+```
+
+This builds the same container images that run on AWS, sets up the database (migrations
+and sample data), and serves the app at http://localhost:3000 — sign in with the sample
+logins above. The first build takes a few minutes. Stop it with `Ctrl+C`, then
+`docker compose --profile app down`. It uses ports 3000 and 8080, so stop any
+`npm run dev:*` servers first.
+
 ### Something not working?
 
 - **`Can't reach database server` / authentication failed** — Docker Desktop isn't
