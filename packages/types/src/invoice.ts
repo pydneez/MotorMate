@@ -61,3 +61,15 @@ export type InvoiceDetail = InvoiceSummary & {
   /** Who marked it paid (from the audit log), if paid. */
   paidBy: string | null;
 };
+
+/**
+ * GET /invoices/:id/pdf. On AWS `url` is a short-lived presigned S3 link that downloads the
+ * stored PDF; locally (no bucket) it's a `data:` URL with the PDF inline. Either way the
+ * browser just opens it.
+ */
+export type InvoicePdfLink = { url: string; filename: string };
+
+/** INV-0007.pdf */
+export function invoicePdfFilename(number: number): string {
+  return `${formatInvoiceNumber(number)}.pdf`;
+}
