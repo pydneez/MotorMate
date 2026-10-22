@@ -28,7 +28,7 @@ Deadline: code freeze **Nov 10, 2026**, final presentation **Nov 17, 2026**.
 | Customer emails | Amazon SNS email subscriptions — SES is blocked in Learner Lab (see Reminders below) |
 | Scheduled jobs | Amazon EventBridge Scheduler (09:00 and 18:30 Bangkok) → AWS Lambda → the API's job endpoints |
 | Logging / monitoring | Amazon CloudWatch (ECS `awslogs` driver) |
-| CI | GitHub Actions (lint, typecheck, test on PR) |
+| CI | GitHub Actions (`.github/workflows/ci.yml`): typecheck + unit tests, and integration tests against a Postgres service, on every PR and push to main. Lint not yet (ESLint isn't set up) |
 | Project management | Jira |
 
 Everything is TypeScript — frontend, backend, and the reminder Lambda — so types can be
