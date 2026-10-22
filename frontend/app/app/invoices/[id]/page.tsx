@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { formatInvoiceNumber, formatWorkOrderNumber, type InvoiceDetail } from "@motormate/types";
+import { formatInvoiceNumber, formatWorkOrderNumber, SHOP, type InvoiceDetail } from "@motormate/types";
 import { InvoiceActions } from "@/components/invoices/invoice-actions";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
 import { Card, PageHeader } from "@/components/ui";
 import { formatDate, formatDateTime, formatKm, formatTHB, formatThaiPhone } from "@/lib/format";
 import { requireSession, serverGet } from "@/lib/server";
-import { SHOP } from "@/lib/shop";
 
 /** The printable invoice. The app shell and buttons are hidden when printing. */
 export default async function InvoicePage({ params }: { params: { id: string } }) {
