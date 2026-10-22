@@ -31,6 +31,16 @@ groups that only accept traffic from the load balancer.
 
 - **Git Bash** (comes with Git for Windows), the **AWS CLI v2**, and **Docker Desktop**
   running. On Windows, run the scripts from Git Bash, not PowerShell or WSL.
+- Check that Git Bash can find the AWS CLI: `aws --version`. If it says "command not
+  found", open a **new** Git Bash window (one opened before the install doesn't see it), or
+  add it to your profile once:
+
+  ```bash
+  echo 'export PATH="$PATH:/c/Program Files/Amazon/AWSCLIV2"' >> ~/.bashrc && source ~/.bashrc
+  ```
+
+  (A per-user install lives in `/c/Users/<you>/AppData/Local/Programs/Amazon/AWSCLIV2`.)
+  Without it every script stops with "AWS credentials missing or expired".
 - Start the lab (AWS Academy → Learner Lab → **Start Lab**), then **AWS Details → AWS CLI:
   Show** and paste the three lines into `~/.aws/credentials` under `[default]`. They expire
   with the session — repeat every time. Check with `aws sts get-caller-identity`.
