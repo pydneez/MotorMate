@@ -1,23 +1,46 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { MechanicOption, VehicleDetail } from "@motormate/types";
+import type { AppointmentSummary, MechanicOption, VehicleDetail } from "@motormate/types";
 import { Card, PageHeader } from "@/components/ui";
 import { CheckInForm } from "@/components/work-orders/check-in-form";
 import { WalkInForm } from "@/components/work-orders/walk-in-form";
+import { formatAppointmentTime } from "@/lib/format";
 import { requireSession, serverGet } from "@/lib/server";
 
-type Props = { searchParams: { vehicleId?: string; mode?: string } };
+type Props = { searchParams: { vehicleId?: string; mode?: string; appointment?: string } };
 
-/** Check in a known vehicle, or (?mode=walk-in) register customer + vehicle and check in at once. */
+/**
+ * Check in a known vehicle, a booked appointment (?appointment=…, vehicle and complaint
+ * prefilled), or (?mode=walk-in) register customer + vehicle and check in at once.
+ */
 export default async function CheckInPage({ searchParams }: Props) {
   const { user } = await requireSession();
   if (user.role !== "ADMIN" && user.role !== "ADVISOR") redirect("/app/work-orders");
 
   const walkIn = searchParams.mode === "walk-in";
+  const appointment = !walkIn && searchParams.appointment
+    ? await serverGet<AppointmentSummary>(`/appointments/${searchParams.appointment}`)
+    : null;
+  const vehicleId = appointment?.vehicle.id ?? (walkIn ? undefined : searchParams.vehicleId);
   const [mechanics, vehicle] = await Promise.all([
     serverGet<MechanicOption[]>("/work-orders/mechanics"),
-    !walkIn && searchParams.vehicleId ? serverGet<VehicleDetail>(`/vehicles/${searchParams.vehicleId}`) : Promise.resolve(null),
+    vehicleId ? serverGet<VehicleDetail>(`/vehicles/${vehicleId}`) : Promise.resolve(null),
   ]);
+
+  if (appointment) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <PageHeader
+          title="Check in appointment"
+          back={{ href: "/app/appointments?view=today", label: "Appointments" }}
+          subtitle={`${appointment.customer.name} · booked for ${formatAppointmentTime(appointment.scheduledAt)}`}
+        />
+        <Card className="p-6">
+          <CheckInForm initialVehicle={vehicle} mechanics={mechanics} appointment={{ id: appointment.id, reason: appointment.reason }} />
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-2xl">

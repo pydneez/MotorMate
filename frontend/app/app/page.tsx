@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { Calendar, Car } from "lucide-react";
-import type { AuthUser, InventorySummary, Paginated, VehicleSummary, WorkOrderCounts } from "@motormate/types";
+import type { AppointmentCounts, AppointmentSummary, AuthUser, InventorySummary, Paginated, VehicleSummary, WorkOrderCounts } from "@motormate/types";
 import { authOptions } from "@/auth";
+import { AppointmentStatusBadge } from "@/components/appointments/appointment-status-badge";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
+import { formatAppointmentTime } from "@/lib/format";
 import { serverGet } from "@/lib/server";
 
 function greeting(): string {
@@ -37,7 +39,7 @@ function StatCard({ label, note, value, href, alert }: { label: string; note: st
   );
 }
 
-type CardSource = "lowStock" | "openWorkOrders" | "myJobs" | "awaitingParts" | "qualityCheck";
+type CardSource = "lowStock" | "openWorkOrders" | "myJobs" | "awaitingParts" | "qualityCheck" | "todayAppointments" | "appointmentRequests";
 type CardSpec = { label: string; note: string; source?: CardSource };
 
 const LOW_STOCK_CARD: CardSpec = { label: "Low-stock items", note: "At or below reorder level", source: "lowStock" };
@@ -50,7 +52,12 @@ const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, CardSpec[]> = {
     LOW_STOCK_CARD,
     { label: "Active staff", note: "Staff module" },
   ],
-  ADVISOR: [OPEN_WORK_ORDERS_CARD, { label: "Today's appointments", note: "Appointments module" }, LOW_STOCK_CARD],
+  ADVISOR: [
+    OPEN_WORK_ORDERS_CARD,
+    { label: "Today's appointments", note: "Booked for today", source: "todayAppointments" },
+    { label: "Requests to confirm", note: "Customers waiting for an answer", source: "appointmentRequests" },
+    LOW_STOCK_CARD,
+  ],
   MECHANIC: [
     { label: "My assigned jobs", note: "Open jobs assigned to you", source: "myJobs" },
     { label: "Awaiting parts", note: "All mechanics", source: "awaitingParts" },
@@ -63,8 +70,13 @@ function cardData(
   source: CardSource,
   inventory: InventorySummary | null,
   workOrders: WorkOrderCounts | null,
+  appointments: AppointmentCounts | null,
 ): { value: number; href: string; alert?: boolean } | null {
   switch (source) {
+    case "todayAppointments":
+      return appointments && { value: appointments.today, href: "/app/appointments?view=today" };
+    case "appointmentRequests":
+      return appointments && { value: appointments.requests, alert: appointments.requests > 0, href: "/app/appointments?view=requests" };
     case "lowStock":
       return inventory && { value: inventory.lowStockCount, alert: inventory.lowStockCount > 0, href: "/app/inventory?lowStock=true" };
     case "openWorkOrders":
@@ -79,9 +91,28 @@ function cardData(
 }
 
 async function CustomerDashboard() {
-  const vehicles = await serverGet<Paginated<VehicleSummary>>("/vehicles?pageSize=6");
+  const [vehicles, upcoming] = await Promise.all([
+    serverGet<Paginated<VehicleSummary>>("/vehicles?pageSize=6"),
+    serverGet<Paginated<AppointmentSummary>>("/appointments?view=upcoming&pageSize=1"),
+  ]);
+  const next = upcoming.items[0];
   return (
     <div className="space-y-6">
+      {next && (
+        <Link
+          href="/app/appointments"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm transition hover:border-blue-300"
+        >
+          <span className="flex items-center gap-3">
+            <Calendar className="h-5 w-5 text-blue-600" aria-hidden />
+            <span>
+              <span className="font-semibold">Next appointment:</span> {formatAppointmentTime(next.scheduledAt)} ·{" "}
+              {next.vehicle.make} {next.vehicle.model} · {next.reason}
+            </span>
+          </span>
+          <AppointmentStatusBadge status={next.status} scheduledAt={next.scheduledAt} forCustomer />
+        </Link>
+      )}
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold">My vehicles</h2>
@@ -125,9 +156,10 @@ export default async function DashboardPage() {
   if (!session) return null;
   const { user } = session;
   const isStaff = user.role === "ADMIN" || user.role === "ADVISOR";
-  const [inventory, workOrders] = await Promise.all([
+  const [inventory, workOrders, appointments] = await Promise.all([
     isStaff ? serverGet<InventorySummary>("/inventory/summary") : Promise.resolve(null),
     user.role !== "CUSTOMER" ? serverGet<WorkOrderCounts>("/work-orders/counts") : Promise.resolve(null),
+    isStaff ? serverGet<AppointmentCounts>("/appointments/counts") : Promise.resolve(null),
   ]);
 
   return (
@@ -144,7 +176,7 @@ export default async function DashboardPage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {STAFF_CARDS[user.role].map(({ source, ...card }) => {
-              const data = source ? cardData(source, inventory, workOrders) : null;
+              const data = source ? cardData(source, inventory, workOrders, appointments) : null;
               return <StatCard key={card.label} {...card} {...(data ?? {})} />;
             })}
           </div>
