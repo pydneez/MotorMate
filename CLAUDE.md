@@ -394,6 +394,61 @@ The build is done in numbered steps (Step 1 = schema + auth, Step 2 = ...). For 
    and browser checks, what's not included, the base branch if it's stacked, and the Jira
    tickets.
 
+## Team workflow (read this when picking up the project)
+
+Several team members build MotorMate, each with their own Claude Code. These are the habits
+the build has followed so far — keep them.
+
+**Where things stand (Oct 23, 2026).** Steps 1–5 are merged: schema + auth, customers /
+vehicles / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments,
+reminder engine (PR #16). **Next: Step 6, reporting dashboard + CSV export** — the plan,
+with its open decisions, is in `docs/step-6-plan.md` (confirm the decisions with the team
+before building). After that: `docs/backlog.md` (Jira CLOUDAPPG3-129…140).
+
+**Commits and PRs**
+- Claude never commits or pushes; it hands over the commands. Several **small,
+  single-module commits** (types / db / one backend module / frontend / infra / docs), each
+  as its own `git add …` + `git commit …` block — never one big commit.
+- **No Claude attribution anywhere**: no `Co-Authored-By: Claude` trailer, no "Generated
+  with Claude Code" line in PR descriptions.
+- Every step report ends with a paste-ready PR title + description (summary, included,
+  tests and browser checks, not included, base branch if stacked, Jira tickets).
+- Only commit files the step changed — never someone's unrelated local edits (e.g. to
+  `docker-compose.yml` or `.env.example` files).
+
+**Jira** (site `des424-g3.atlassian.net`, project `CLOUDAPPG3`, cloudId
+`0320bc05-a2cf-43d7-b1cd-9553e51755fb`; Claude uses it through the Atlassian connector —
+connect it with your own Jira login)
+- Module epics: 2 Dashboard & App Shell · 3 User Management · 89 Customer & Vehicle ·
+  91 Service & Work Order · 92 Inventory · 90 Notification & Reminder · 104 Appointment ·
+  105 Reporting & Analytics · 5 / 58 AWS deployment. Leave epics 1, 4, 6, 57, 88 alone.
+- Tasks are titled `[Frontend] …` / `[Backend] …` under their module epic; new work gets new
+  tickets in the right epic.
+- At the **start** of a step move its tickets To Do → In Progress (transition id `4`); at
+  the **end** add a short comment (what was built, how it was verified) and move them to
+  In Review (transition id `5`, "Done Implementing").
+- **Never move a ticket to Done** — the team does that after reviewing the PR.
+
+**Local machine (Windows)**
+- Run repo scripts from **Git Bash**, not PowerShell or WSL (`bash` may point at WSL; use
+  `"C:\Program Files\Git\bin\bash.exe"` if so).
+- The **AWS CLI v2** must be on Git Bash's `PATH`. If `aws --version` says "command not
+  found" (the scripts then report "AWS credentials missing or expired"), open a new Git Bash
+  window, or add it once:
+  `echo 'export PATH="$PATH:/c/Program Files/Amazon/AWSCLIV2"' >> ~/.bashrc` (per-user
+  installs live in `/c/Users/<you>/AppData/Local/Programs/Amazon/AWSCLIV2`).
+- Dev servers are often already running on :3000 / :8080 — check before starting new ones.
+- Browser tests: note the UTC time first, then delete the rows you created (children first)
+  and restore anything you changed; leave the seed data as it was.
+- After every AWS session: `bash infra/scripts/down.sh` (Learner Lab keeps billing).
+
+**For the final project document** (graded against the kickoff report): every change of
+design needs a one-line "why". So far: no domain → HTTPS from API Gateway's certificate
+(CloudFront denied); Amplify → frontend as an ECS container (Amplify restricted); Cognito →
+NextAuth + our own JWT; private subnets + NAT → public subnets with locked-down security
+groups (NAT too expensive); SES → SNS email (SES denied); Multi-AZ only in the demo
+account (cost); only `LabRole` exists, so no least-privilege IAM roles (documented limit).
+
 ## Local development
 
 See `README.md` for full setup steps. Quick reference:
@@ -501,7 +556,10 @@ Values that must agree **across files**:
 ## Parked ideas (nice-to-have, not scheduled)
 
 Agreed as good ideas, deliberately not built so the MVP stays on schedule. Don't build
-without the team deciding first.
+without the team deciding first. **`docs/backlog.md`** has the detailed build notes and a
+suggested order for: clearer work-order status steps + action-named buttons, button colours
+by meaning (green forward / red stop), appointment filters, customer visit history (staff
+and customer side), and fixed prices for routine services (extends the price list below).
 
 - **Labour price list (hybrid pricing).** Today labour lines are free-typed amounts entered
   by staff or the assigned mechanic (common in small garages, but anyone can type any
