@@ -187,6 +187,53 @@ Resources:
     Properties:
       ClusterName: motormate
 
+  # ── Invoice PDFs ─────────────────────────────────────────────────────────────
+  # Private and encrypted; the API stores each invoice's PDF here on its first download and
+  # hands out 5-minute presigned links. Kept between sessions (pennies). nuke.sh empties it
+  # before deleting the stack — CloudFormation can't delete a bucket that has objects.
+  InvoiceBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub motormate-invoices-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
+
+  # HTTPS only, and only two principals at all: LabRole (the app's containers — presigned
+  # links are signed with it too) and voclabs (you, so the scripts can empty and delete it).
+  # A dedicated least-privilege task role is the production plan (Learner Lab can't create one).
+  InvoiceBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref InvoiceBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: HttpsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt InvoiceBucket.Arn, !Sub "${InvoiceBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+          - Sid: AppAndLabUserOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [!GetAtt InvoiceBucket.Arn, !Sub "${InvoiceBucket.Arn}/*"]
+            Condition:
+              ArnNotLike:
+                "aws:PrincipalArn":
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+                  - !Sub arn:aws:iam::${AWS::AccountId}:role/voclabs
+
   BackendLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -224,6 +271,9 @@ Outputs:
   Cluster:
     Value: !Ref Cluster
     Export: { Name: motormate-Cluster }
+  InvoiceBucket:
+    Value: !Ref InvoiceBucket
+    Export: { Name: motormate-InvoiceBucket }
   BackendRepositoryUri:
     Value: !GetAtt BackendRepository.RepositoryUri
   FrontendRepositoryUri:
