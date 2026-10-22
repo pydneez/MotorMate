@@ -9,4 +9,5 @@ export * from "./work-order";
 export * from "./invoice";
 export * from "./shop";
 export * from "./appointment";
+export * from "./reminder";
 export * from "./inventory";
