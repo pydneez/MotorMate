@@ -148,10 +148,10 @@ export function WalkInForm({ mechanics }: { mechanics: MechanicOption[] }) {
                 </Alert>
               </div>
             )}
-            <Field label="First name" name="firstName" error={fieldErrors.firstName} />
-            <Field label="Last name" name="lastName" error={fieldErrors.lastName} />
+            <Field label="First name" name="firstName" maxLength={60} error={fieldErrors.firstName} />
+            <Field label="Last name" name="lastName" maxLength={60} error={fieldErrors.lastName} />
             <Field label="Email (optional)" name="email" type="email" onBlur={onCustomerBlur} error={fieldErrors.email} />
-            <Field label="LINE ID (optional)" name="lineId" error={fieldErrors.lineId} />
+            <Field label="LINE ID (optional)" name="lineId" maxLength={20} error={fieldErrors.lineId} />
             {emailTaken && (
               <div className="sm:col-span-2">
                 <Alert>
@@ -189,10 +189,10 @@ export function WalkInForm({ mechanics }: { mechanics: MechanicOption[] }) {
           className="sm:col-span-2"
           autoCapitalize="characters"
         />
-        <Field label="Make" name="make" placeholder="Honda" error={fieldErrors.make} />
-        <Field label="Model" name="model" placeholder="Civic" error={fieldErrors.model} />
+        <Field label="Make" name="make" maxLength={40} placeholder="Honda" error={fieldErrors.make} />
+        <Field label="Model" name="model" maxLength={60} placeholder="Civic" error={fieldErrors.model} />
         <Field label="Year" name="year" type="number" inputMode="numeric" error={fieldErrors.year} />
-        <Field label="Color (optional)" name="color" error={fieldErrors.color} />
+        <Field label="Color (optional)" name="color" maxLength={30} error={fieldErrors.color} />
         {vehicleDuplicates?.vinTaken && (
           <div className="sm:col-span-2">
             <Alert>

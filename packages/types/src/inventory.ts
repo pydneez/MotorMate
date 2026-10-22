@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { clearableText, ListQuerySchema, QueryBooleanSchema, wholeNumber } from "./common";
+import {
+  blankAsNull,
+  blankAsUndefined,
+  clearableText,
+  ListQuerySchema,
+  numberInput,
+  QueryBooleanSchema,
+  textWithLetters,
+  wholeNumber,
+} from "./common";
 
 /** Why a stock level changed — mirrors the Prisma StockMovementReason enum. */
 export const StockMovementReasonSchema = z.enum(["PURCHASE", "WORK_ORDER", "ADJUSTMENT"]);
@@ -19,7 +28,7 @@ export const SkuSchema = z
  */
 export function money(label: string) {
   return z.preprocess(
-    (value) => (value === "" || value === null || value === undefined ? undefined : Number(value)),
+    numberInput,
     z
       .number({ required_error: `${label} is required`, invalid_type_error: `${label} must be a number` })
       .nonnegative(`${label} can't be negative`)
@@ -28,8 +37,14 @@ export function money(label: string) {
   );
 }
 
-const name = z.string().trim().min(1, "Name is required").max(120);
-const category = z.string().trim().min(1, "Category is required").max(50);
+/** Free text ("Wiper blade 24\"") but not just a number. */
+const name = textWithLetters("Name", { max: 120 });
+const category = textWithLetters("Category", {
+  max: 50,
+  allowed: /^[\p{L}\p{M}\d\s&/-]+$/u,
+  allowedHint: "letters, digits, spaces, & - and /",
+});
+const supplier = textWithLetters("Supplier", { max: 120 });
 
 export const CreateInventoryItemSchema = z.object({
   sku: SkuSchema,
@@ -37,12 +52,7 @@ export const CreateInventoryItemSchema = z.object({
   category,
   unitCost: money("Cost"),
   unitPrice: money("Price"),
-  supplier: z
-    .string()
-    .trim()
-    .max(120)
-    .optional()
-    .transform((value) => value || undefined),
+  supplier: blankAsUndefined(supplier),
   reorderLevel: wholeNumber("Reorder level", (n) => n.nonnegative("Reorder level can't be negative")),
   /** Stock already on the shelf when the item is added; recorded as an "Opening stock" movement. */
   openingQuantity: wholeNumber("Opening quantity", (n) => n.nonnegative("Opening quantity can't be negative")),
@@ -61,7 +71,7 @@ export const UpdateInventoryItemSchema = z
     category,
     unitCost: money("Cost"),
     unitPrice: money("Price"),
-    supplier: clearableText(120),
+    supplier: blankAsNull(supplier),
     reorderLevel: wholeNumber("Reorder level", (n) => n.nonnegative("Reorder level can't be negative")),
   })
   .partial()
@@ -81,7 +91,7 @@ export type ReceiveStockInput = z.input<typeof ReceiveStockSchema>;
 /** Shelf count: set the counted quantity; the difference is recorded as an adjustment. */
 export const StocktakeSchema = z.object({
   countedQuantity: wholeNumber("Counted quantity", (n) => n.nonnegative("Counted quantity can't be negative")),
-  reason: z.string().trim().min(3, "Give a reason for the difference").max(200),
+  reason: textWithLetters("Reason", { min: 3, max: 200, required: "Give a reason for the difference" }),
 });
 
 export type StocktakeInput = z.input<typeof StocktakeSchema>;

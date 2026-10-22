@@ -114,10 +114,10 @@ export function VehicleForm({
           className="sm:col-span-2"
           autoCapitalize="characters"
         />
-        <Field label="Make" name="make" placeholder="Honda" defaultValue={vehicle?.make} error={fieldErrors.make} />
-        <Field label="Model" name="model" placeholder="Civic" defaultValue={vehicle?.model} error={fieldErrors.model} />
+        <Field label="Make" name="make" maxLength={40} placeholder="Honda" defaultValue={vehicle?.make} error={fieldErrors.make} />
+        <Field label="Model" name="model" maxLength={60} placeholder="Civic" defaultValue={vehicle?.model} error={fieldErrors.model} />
         <Field label="Year" name="year" type="number" inputMode="numeric" defaultValue={vehicle?.year} error={fieldErrors.year} />
-        <Field label="Color (optional)" name="color" defaultValue={vehicle?.color ?? ""} error={fieldErrors.color} />
+        <Field label="Color (optional)" name="color" maxLength={30} defaultValue={vehicle?.color ?? ""} error={fieldErrors.color} />
         {!editing && (
           <Field
             label="Current mileage (km)"

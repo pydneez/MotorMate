@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ListQuerySchema } from "./common";
+import { ListQuerySchema, textWithLetters } from "./common";
 import type { Role } from "./role";
 import { SHOP } from "./shop";
 
@@ -133,7 +133,7 @@ export const CreateAppointmentSchema = z
   .object({
     vehicleId: z.string().min(1, "Choose a vehicle"),
     ...timeFields,
-    reason: z.string().trim().min(1, "Tell us what the visit is for").max(500),
+    reason: textWithLetters("Reason", { max: 500, required: "Tell us what the visit is for" }),
   })
   .superRefine(checkBookingTime);
 export type CreateAppointmentInput = z.input<typeof CreateAppointmentSchema>;

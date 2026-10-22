@@ -70,8 +70,8 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
   return (
     <form onSubmit={onSubmit} noValidate className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="First name" name="firstName" defaultValue={customer?.firstName} error={fieldErrors.firstName} />
-        <Field label="Last name" name="lastName" defaultValue={customer?.lastName} error={fieldErrors.lastName} />
+        <Field label="First name" name="firstName" maxLength={60} defaultValue={customer?.firstName} error={fieldErrors.firstName} />
+        <Field label="Last name" name="lastName" maxLength={60} defaultValue={customer?.lastName} error={fieldErrors.lastName} />
         <Field
           label="Phone"
           name="phone"
@@ -81,7 +81,7 @@ export function CustomerForm({ customer }: { customer?: Customer }) {
           onBlur={onBlurCheck}
           error={fieldErrors.phone}
         />
-        <Field label="LINE ID (optional)" name="lineId" defaultValue={customer?.lineId ?? ""} error={fieldErrors.lineId} />
+        <Field label="LINE ID (optional)" name="lineId" maxLength={20} defaultValue={customer?.lineId ?? ""} error={fieldErrors.lineId} />
         <Field
           label="Email (optional)"
           name="email"

@@ -90,8 +90,8 @@ export function AddStaffButton() {
       <Modal open={open} title="Add staff member" onClose={() => setOpen(false)}>
         <form onSubmit={onSubmit} noValidate className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="First name" name="firstName" error={fieldErrors.firstName} />
-            <Field label="Last name" name="lastName" error={fieldErrors.lastName} />
+            <Field label="First name" name="firstName" maxLength={60} error={fieldErrors.firstName} />
+            <Field label="Last name" name="lastName" maxLength={60} error={fieldErrors.lastName} />
           </div>
           <Field label="Email" name="email" type="email" autoComplete="off" error={fieldErrors.email} />
           <RolePicker error={fieldErrors.role} />
@@ -226,8 +226,8 @@ export function StaffRowActions({ user }: { user: StaffUser }) {
       <Modal open={dialog === "edit"} title={`Edit ${fullName(user)}`} onClose={() => setDialog(null)}>
         <form onSubmit={onEdit} noValidate className="space-y-4 text-left">
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="First name" name="firstName" defaultValue={user.firstName} error={form.fieldErrors.firstName} />
-            <Field label="Last name" name="lastName" defaultValue={user.lastName} error={form.fieldErrors.lastName} />
+            <Field label="First name" name="firstName" maxLength={60} defaultValue={user.firstName} error={form.fieldErrors.firstName} />
+            <Field label="Last name" name="lastName" maxLength={60} defaultValue={user.lastName} error={form.fieldErrors.lastName} />
           </div>
           <RolePicker defaultValue={user.role} error={form.fieldErrors.role} />
           {form.error && <Alert>{form.error}</Alert>}

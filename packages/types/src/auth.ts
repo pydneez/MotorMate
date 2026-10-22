@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { blankAsUndefined, LineIdSchema, personName } from "./common";
 import { RoleSchema } from "./role";
 import { ThaiPhoneSchema } from "./thai";
 
@@ -27,16 +28,11 @@ export const PASSWORD_MIN_LENGTH = 8;
 
 /** Body of POST /auth/register (customer self-registration). */
 export const RegisterSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required"),
-  lastName: z.string().trim().min(1, "Last name is required"),
+  firstName: personName("First name"),
+  lastName: personName("Last name"),
   email: z.string().trim().toLowerCase().email("Enter a valid email"),
   phone: ThaiPhoneSchema,
-  lineId: z
-    .string()
-    .trim()
-    .max(50)
-    .optional()
-    .transform((value) => value || undefined),
+  lineId: blankAsUndefined(LineIdSchema),
   password: z
     .string()
     .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`),

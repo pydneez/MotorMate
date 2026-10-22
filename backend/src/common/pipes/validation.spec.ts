@@ -390,3 +390,101 @@ describe("work order rules (shared with the frontend)", () => {
     expect(() => validate(WorkOrderListQuerySchema, { status: "DONE" })).toThrow(BadRequestException);
   });
 });
+
+describe("text and number field rules", () => {
+  const customer = { firstName: "Jordan", lastName: "Lee", phone: "081 234 5678" };
+
+  it.each(["13000", "!!!", "12-34"])("rejects %p as a vehicle color", (color) => {
+    expect(fieldErrors(CreateVehicleSchema, { ...validVehicle, color }).color).toEqual([
+      "Color must contain letters, not only numbers or symbols",
+    ]);
+  });
+
+  it("rejects digits mixed into a color and checks it on edit too", () => {
+    expect(fieldErrors(CreateVehicleSchema, { ...validVehicle, color: "Red 2" }).color).toEqual([
+      "Color can only contain letters, spaces, - and /",
+    ]);
+    expect(fieldErrors(UpdateVehicleSchema, { color: "13000" }).color).toBeDefined();
+  });
+
+  it.each(["White", "Dark grey", "Black/White", "Blue-green", "ขาว", "เทา เข้ม"])("accepts %p as a color", (color) => {
+    expect(validate(CreateVehicleSchema, { ...validVehicle, color }).color).toBe(color);
+  });
+
+  it("requires a letter in the make but allows all-digit models", () => {
+    expect(fieldErrors(CreateVehicleSchema, { ...validVehicle, make: "1234" }).make).toEqual([
+      "Make must contain letters, not only numbers or symbols",
+    ]);
+    for (const [make, model] of [
+      ["Mercedes-Benz", "C 200"],
+      ["Mazda", "CX-5"],
+      ["BMW", "3 Series"],
+      ["Isuzu", "D-Max"],
+      ["Toyota", "86"],
+      ["Peugeot", "3008"],
+    ]) {
+      expect(validate(CreateVehicleSchema, { ...validVehicle, make, model })).toEqual(expect.objectContaining({ make, model }));
+    }
+    expect(fieldErrors(CreateVehicleSchema, { ...validVehicle, model: "---" }).model).toEqual(["Model must contain letters or digits"]);
+    expect(fieldErrors(CreateVehicleSchema, { ...validVehicle, model: "Civic <b>" }).model).toBeDefined();
+  });
+
+  it.each([
+    ["CreateCustomerSchema", CreateCustomerSchema],
+    ["RegisterSchema", RegisterSchema],
+    ["CreateStaffSchema", CreateStaffSchema],
+  ] as [string, ZodTypeAny][])("%s rejects digits in names", (_name, schema) => {
+    const errors = fieldErrors(schema, { firstName: "12345", lastName: "Lee2" });
+    expect(errors.firstName).toEqual(["First name must contain letters, not only numbers or symbols"]);
+    expect(errors.lastName).toEqual(["Last name can only contain letters, spaces, - ' and ."]);
+  });
+
+  it("accepts Thai and hyphenated names", () => {
+    expect(validate(CreateCustomerSchema, { ...customer, firstName: "สมชาย", lastName: "ใจดี" })).toEqual(
+      expect.objectContaining({ firstName: "สมชาย", lastName: "ใจดี" }),
+    );
+    expect(validate(UpdateStaffSchema, { firstName: "Mary-Jane", lastName: "O'Neil" })).toEqual({
+      firstName: "Mary-Jane",
+      lastName: "O'Neil",
+    });
+  });
+
+  it("follows LINE's rules for a LINE ID: lowercased, digits-only allowed", () => {
+    expect(validate(CreateCustomerSchema, { ...customer, lineId: " Jordan.Lee " }).lineId).toBe("jordan.lee");
+    expect(validate(CreateCustomerSchema, { ...customer, lineId: "0812345678" }).lineId).toBe("0812345678");
+    expect(fieldErrors(CreateCustomerSchema, { ...customer, lineId: "abc" }).lineId).toBeDefined();
+    expect(fieldErrors(UpdateOwnCustomerSchema, { lineId: "has space" }).lineId).toBeDefined();
+  });
+
+  it("requires a letter in descriptions and inventory text, but not in notes", () => {
+    expect(fieldErrors(CreateWorkOrderSchema, { vehicleId: "v", mileageIn: "1", complaint: "13000" }).complaint).toEqual([
+      "Complaint must contain letters, not only numbers or symbols",
+    ]);
+    expect(fieldErrors(AddLabourSchema, { description: "500", laborCost: "500" }).description).toBeDefined();
+    expect(fieldErrors(AddRecommendationSchema, { description: "80000", dueMileage: "80000" }).description).toBeDefined();
+    const item = { sku: "FLT-CAB", name: "123", category: "99", unitCost: "1", unitPrice: "2", supplier: "000", reorderLevel: "1", openingQuantity: "0" };
+    expect(Object.keys(fieldErrors(CreateInventoryItemSchema, item)).sort()).toEqual(["category", "name", "supplier"]);
+    expect(validate(CreateInventoryItemSchema, { ...item, name: 'Wiper blade 24"', category: "Filters", supplier: "3M" })).toEqual(
+      expect.objectContaining({ name: 'Wiper blade 24"', category: "Filters", supplier: "3M" }),
+    );
+    expect(validate(ReceiveStockSchema, { quantity: "5", note: "INV-2026-0042" }).note).toBe("INV-2026-0042");
+  });
+
+  it.each(["1e5", "0x1F", "12abc", "4,000", "Infinity", "  "])("rejects %p as a whole number", (mileage) => {
+    expect(fieldErrors(CreateVehicleSchema, { ...validVehicle, mileage }).mileage).toBeDefined();
+  });
+
+  it("rejects non-numeric money and non-number JSON values", () => {
+    expect(fieldErrors(AddLabourSchema, { description: "Oil change", laborCost: "1e3" }).laborCost).toEqual(["Labour cost must be a number"]);
+    expect(fieldErrors(AddLabourSchema, { description: "Oil change", laborCost: "12,50" }).laborCost).toBeDefined();
+    expect(fieldErrors(ReceiveStockSchema, { quantity: true }).quantity).toEqual(["Quantity must be a number"]);
+    expect(fieldErrors(AddRecommendationSchema, { description: "Brakes", dueMileage: "8e4" }).dueMileage).toBeDefined();
+    expect(fieldErrors(CreateVehicleSchema, { ...validVehicle, year: "2019.5" }).year).toEqual(["Year must be a whole number"]);
+  });
+
+  it("still accepts plain numbers as text or JSON numbers", () => {
+    expect(validate(AddLabourSchema, { description: "Oil change", laborCost: " 450.50 " }).laborCost).toBe(450.5);
+    expect(validate(ReceiveStockSchema, { quantity: 3 }).quantity).toBe(3);
+    expect(validate(AddRecommendationSchema, { description: "Brakes", dueMileage: "", dueDate: "2027-01-01" }).dueMileage).toBeUndefined();
+  });
+});
