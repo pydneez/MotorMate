@@ -7,3 +7,5 @@ allowBuilds:
   '@prisma/engines': true
   esbuild: true
   prisma: true
+  # ESLint import resolver (frontend lint); ships prebuilt binaries, its script is not needed.
+  unrs-resolver: false

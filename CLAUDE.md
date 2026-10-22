@@ -28,7 +28,7 @@ Deadline: code freeze **Nov 10, 2026**, final presentation **Nov 17, 2026**.
 | Customer emails | Amazon SNS email subscriptions — SES is blocked in Learner Lab (see Reminders below) |
 | Scheduled jobs | Amazon EventBridge Scheduler (09:00 and 18:30 Bangkok) → AWS Lambda → the API's job endpoints |
 | Logging / monitoring | Amazon CloudWatch (ECS `awslogs` driver) |
-| CI | GitHub Actions (`.github/workflows/ci.yml`): typecheck + unit tests, and integration tests against a Postgres service, on every PR and push to main. Lint not yet (ESLint isn't set up) |
+| CI | GitHub Actions (`.github/workflows/ci.yml`): typecheck + lint + unit tests, and integration tests against a Postgres service, on every PR and push to main |
 | Project management | Jira |
 
 Everything is TypeScript — frontend, backend, and the reminder Lambda — so types can be
@@ -408,6 +408,7 @@ npm run dev:backend            # build packages/types, then run backend (NestJS)
 npm run dev:frontend           # build packages/types, then run frontend (Next.js) on :3000
 npm run test                   # build packages/types, then Jest unit tests in every package
 npm run test:integration       # backend HTTP + real-Postgres tests (see below)
+pnpm lint                      # ESLint: backend (eslint.config.mjs, ESLint 9) + frontend (next lint, ESLint 8)
 ```
 
 - **Integration tests** (`backend/test/*.int-spec.ts`) boot the whole Nest app and hit a

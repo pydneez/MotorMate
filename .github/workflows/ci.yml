@@ -1,4 +1,4 @@
-# Checks every pull request (and every push to main): typecheck, unit tests, and the
+# Checks every pull request (and every push to main): typecheck, lint, unit tests, and the
 # backend integration tests against a throwaway Postgres. Make "Typecheck & unit tests"
 # and "Integration tests" required checks on main so a red PR can't be merged.
 name: CI
@@ -46,6 +46,11 @@ jobs:
 
       - name: Typecheck (types, backend, frontend)
         run: pnpm typecheck
+
+      # Backend: ESLint 9 + typescript-eslint (incl. un-awaited promises).
+      # Frontend: next lint (Next.js, React hooks, TypeScript); warnings fail too.
+      - name: Lint (backend, frontend)
+        run: pnpm lint
 
       - name: Unit tests
         run: pnpm test
