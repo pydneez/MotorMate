@@ -1,8 +1,16 @@
-# Local development database only — the apps themselves run with `npm run dev:*` (see
-# README). Settings come from the root .env (copy .env.example).
+# Local development. Settings come from the root .env (copy .env.example).
+#
+#   docker compose up -d                      the database only — run the apps with
+#                                             `npm run dev:*` while developing (see README)
+#   docker compose --profile app up --build   the whole app in containers (the same images
+#                                             as AWS): migrate → seed → backend → frontend,
+#                                             at http://localhost:3000. Only Docker needed.
 #
 # Ports are published on 127.0.0.1 only, so the local dev passwords can't be reached from
 # other machines on the same network.
+
+x-database-url: &database-url "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
+
 services:
   postgres:
     # Same major version as RDS on AWS.
@@ -41,6 +49,64 @@ services:
         condition: service_healthy
     volumes:
       - motormate_pgadmin_data:/var/lib/pgadmin
+
+  # ── The app profile ─────────────────────────────────────────────────────────────
+  # Uses ports 3000 and 8080, like `npm run dev:*` — stop those first.
+  migrate:
+    profiles: [app]
+    build: { context: ., dockerfile: backend/Dockerfile, target: migrate }
+    image: motormate-migrate:local
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  seed:
+    profiles: [app]
+    build: { context: ., dockerfile: backend/Dockerfile }
+    image: motormate-backend:local
+    command: ["node", "dist-seed/prisma/seed.js"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  backend:
+    profiles: [app]
+    build: { context: ., dockerfile: backend/Dockerfile }
+    image: motormate-backend:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: *database-url
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      CORS_ORIGIN: http://localhost:3000
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+
+  frontend:
+    profiles: [app]
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      # The browser calls the backend container directly on localhost:8080.
+      args: { NEXT_PUBLIC_API_URL: "http://localhost:8080/v1" }
+    image: motormate-frontend:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-secret-change-me}
+      # The Next.js server reaches the backend over the Compose network.
+      API_INTERNAL_URL: http://backend:8080/v1
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   motormate_pg_data:
