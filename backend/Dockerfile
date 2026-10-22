@@ -15,6 +15,7 @@
 #   CORS_ORIGIN      the frontend's origin
 #   PORT             defaults to 8080
 #   DATABASE_SSL_CA  /app/rds-global-bundle.pem on AWS (RDS requires SSL); unset locally
+#   INVOICE_BUCKET   S3 bucket for invoice PDFs on AWS; unset locally (PDFs returned inline)
 
 # ── 1. Build: install the workspace, compile types + backend, make a prod-only bundle ──
 FROM node:22-alpine AS build
@@ -76,6 +77,8 @@ WORKDIR /app
 COPY --from=build --chown=node:node /prod/backend/node_modules ./node_modules
 COPY --from=build --chown=node:node /prod/backend/package.json ./package.json
 COPY --from=build --chown=node:node /repo/backend/dist ./dist
+# The Thai font for invoice PDFs (read from dist/invoices/../../assets).
+COPY --from=build --chown=node:node /repo/backend/assets ./assets
 # The seed, compiled to JS (the image has no ts-node). Run it as a one-off task with the
 # command override `node dist-seed/prisma/seed.js`; it upserts, so re-running is safe.
 COPY --from=build --chown=node:node /repo/backend/dist-seed ./dist-seed

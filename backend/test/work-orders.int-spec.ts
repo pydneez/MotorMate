@@ -340,6 +340,16 @@ describe("completion, invoice and payment", () => {
     await api(tokens.sam).get("/invoices").expect(403);
   });
 
+  it("downloads as a PDF for staff and its owner only", async () => {
+    // No INVOICE_BUCKET in tests, so the PDF comes back inline (on AWS: a presigned S3 link).
+    const staff = await api(tokens.advisor).get(`/invoices/${invoiceId}/pdf`).expect(200);
+    expect(staff.body).toEqual({ url: expect.stringMatching(/^data:application\/pdf;base64,JVBERi0/), filename: "INV-0001.pdf" });
+
+    await api(tokens.customer).get(`/invoices/${invoiceId}/pdf`).expect(200);
+    await api(otherCustomerToken).get(`/invoices/${invoiceId}/pdf`).expect(404);
+    await api(tokens.sam).get(`/invoices/${invoiceId}/pdf`).expect(403);
+  });
+
   it("is marked paid once, by staff, with who and when", async () => {
     await api(tokens.customer).post(`/invoices/${invoiceId}/pay`).expect(403);
 
