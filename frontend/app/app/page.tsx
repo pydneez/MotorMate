@@ -1,9 +1,20 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
-import { Calendar, Car } from "lucide-react";
-import type { AppointmentCounts, AppointmentSummary, AuthUser, InventorySummary, Paginated, VehicleSummary, WorkOrderCounts } from "@motormate/types";
+import { Calendar, Car, Wrench } from "lucide-react";
+import type {
+  AppointmentCounts,
+  AppointmentSummary,
+  AuthUser,
+  InventorySummary,
+  MyReminder,
+  Paginated,
+  ReminderCounts,
+  VehicleSummary,
+  WorkOrderCounts,
+} from "@motormate/types";
 import { authOptions } from "@/auth";
 import { AppointmentStatusBadge } from "@/components/appointments/appointment-status-badge";
+import { ReminderStateBadge, dueText } from "@/components/reminders/reminder-badges";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
 import { formatAppointmentTime } from "@/lib/format";
 import { serverGet } from "@/lib/server";
@@ -39,24 +50,34 @@ function StatCard({ label, note, value, href, alert }: { label: string; note: st
   );
 }
 
-type CardSource = "lowStock" | "openWorkOrders" | "myJobs" | "awaitingParts" | "qualityCheck" | "todayAppointments" | "appointmentRequests";
+type CardSource =
+  | "lowStock"
+  | "openWorkOrders"
+  | "myJobs"
+  | "awaitingParts"
+  | "qualityCheck"
+  | "todayAppointments"
+  | "appointmentRequests"
+  | "dueForService";
 type CardSpec = { label: string; note: string; source?: CardSource };
 
 const LOW_STOCK_CARD: CardSpec = { label: "Low-stock items", note: "At or below reorder level", source: "lowStock" };
 const OPEN_WORK_ORDERS_CARD: CardSpec = { label: "Open work orders", note: "Checked in, not yet completed", source: "openWorkOrders" };
+const DUE_FOR_SERVICE_CARD: CardSpec = { label: "Due for service", note: "Due or overdue recommendations", source: "dueForService" };
 
 const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, CardSpec[]> = {
   ADMIN: [
     { label: "Revenue this month", note: "Reports module" },
     OPEN_WORK_ORDERS_CARD,
     LOW_STOCK_CARD,
-    { label: "Active staff", note: "Staff module" },
+    DUE_FOR_SERVICE_CARD,
   ],
   ADVISOR: [
     OPEN_WORK_ORDERS_CARD,
     { label: "Today's appointments", note: "Booked for today", source: "todayAppointments" },
     { label: "Requests to confirm", note: "Customers waiting for an answer", source: "appointmentRequests" },
     LOW_STOCK_CARD,
+    DUE_FOR_SERVICE_CARD,
   ],
   MECHANIC: [
     { label: "My assigned jobs", note: "Open jobs assigned to you", source: "myJobs" },
@@ -71,8 +92,17 @@ function cardData(
   inventory: InventorySummary | null,
   workOrders: WorkOrderCounts | null,
   appointments: AppointmentCounts | null,
+  reminders: ReminderCounts | null,
 ): { value: number; href: string; alert?: boolean } | null {
   switch (source) {
+    case "dueForService":
+      return (
+        reminders && {
+          value: reminders.due + reminders.overdue,
+          alert: reminders.overdue > 0,
+          href: reminders.overdue > 0 ? "/app/reminders?view=overdue" : "/app/reminders",
+        }
+      );
     case "todayAppointments":
       return appointments && { value: appointments.today, href: "/app/appointments?view=today" };
     case "appointmentRequests":
@@ -91,11 +121,14 @@ function cardData(
 }
 
 async function CustomerDashboard() {
-  const [vehicles, upcoming] = await Promise.all([
+  const [vehicles, upcoming, reminders] = await Promise.all([
     serverGet<Paginated<VehicleSummary>>("/vehicles?pageSize=6"),
     serverGet<Paginated<AppointmentSummary>>("/appointments?view=upcoming&pageSize=1"),
+    serverGet<MyReminder[]>("/reminders/mine"),
   ]);
   const next = upcoming.items[0];
+  // What the shop recommended that's due soon or overdue; later items stay on the vehicle page.
+  const dueSoon = reminders.filter((item) => item.state !== "upcoming");
   return (
     <div className="space-y-6">
       {next && (
@@ -112,6 +145,29 @@ async function CustomerDashboard() {
           </span>
           <AppointmentStatusBadge status={next.status} scheduledAt={next.scheduledAt} forCustomer />
         </Link>
+      )}
+      {dueSoon.length > 0 && (
+        <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm">
+          <h2 className="flex items-center gap-2 font-semibold">
+            <Wrench className="h-4 w-4 text-amber-700" aria-hidden /> Service coming up
+          </h2>
+          <ul className="mt-2 space-y-1.5">
+            {dueSoon.map((item) => (
+              <li key={item.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <ReminderStateBadge state={item.state} />
+                <span>
+                  <span className="font-medium">{item.description}</span> — {item.vehicle.make} {item.vehicle.model} ({item.vehicle.plate}),
+                  due {dueText(item)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!next && (
+            <Link href="/app/appointments/new" className="mt-3 inline-block font-medium text-blue-700 hover:underline">
+              Book a visit →
+            </Link>
+          )}
+        </section>
       )}
       <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
@@ -156,10 +212,11 @@ export default async function DashboardPage() {
   if (!session) return null;
   const { user } = session;
   const isStaff = user.role === "ADMIN" || user.role === "ADVISOR";
-  const [inventory, workOrders, appointments] = await Promise.all([
+  const [inventory, workOrders, appointments, reminders] = await Promise.all([
     isStaff ? serverGet<InventorySummary>("/inventory/summary") : Promise.resolve(null),
     user.role !== "CUSTOMER" ? serverGet<WorkOrderCounts>("/work-orders/counts") : Promise.resolve(null),
     isStaff ? serverGet<AppointmentCounts>("/appointments/counts") : Promise.resolve(null),
+    isStaff ? serverGet<ReminderCounts>("/reminders/counts") : Promise.resolve(null),
   ]);
 
   return (
@@ -174,9 +231,9 @@ export default async function DashboardPage() {
         {user.role === "CUSTOMER" ? (
           <CustomerDashboard />
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={`grid gap-4 sm:grid-cols-2 ${STAFF_CARDS[user.role].length > 4 ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4"}`}>
             {STAFF_CARDS[user.role].map(({ source, ...card }) => {
-              const data = source ? cardData(source, inventory, workOrders, appointments) : null;
+              const data = source ? cardData(source, inventory, workOrders, appointments, reminders) : null;
               return <StatCard key={card.label} {...card} {...(data ?? {})} />;
             })}
           </div>

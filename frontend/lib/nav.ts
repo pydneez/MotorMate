@@ -20,6 +20,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { slug: "customers", label: "Customers", roles: STAFF },
   { slug: "vehicles", label: "Vehicles", roles: ALL },
   { slug: "appointments", label: "Appointments", roles: ["ADMIN", "ADVISOR", "CUSTOMER"] },
+  { slug: "reminders", label: "Reminders", roles: STAFF },
   { slug: "inventory", label: "Inventory", roles: ["ADMIN", "ADVISOR", "MECHANIC"] },
   { slug: "invoices", label: "Invoices", roles: ["ADMIN", "ADVISOR", "CUSTOMER"] },
   { slug: "reports", label: "Reports", roles: ["ADMIN"] },
