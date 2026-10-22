@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   APPOINTMENT_STATUS_LABEL,
@@ -23,6 +23,8 @@ import {
 import type { z } from "zod";
 import { writeAudit } from "../common/utils/audit";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
+import { appointmentEmail, type AppointmentEmailKind } from "../notifications/email-text";
+import { NotifierService } from "../notifications/notifier.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { appointmentInclude, toAppointmentSummary } from "./appointment.mapper";
 
@@ -39,10 +41,18 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * cancel and mark no-shows. Who may do what is appointmentActions() from packages/types.
  * Checking in happens in WorkOrdersService.create (it links the appointment to the job),
  * and the job's completion or cancellation carries over to the appointment.
+ * When staff confirm, book, move or cancel one, the customer gets an email (after the change
+ * is saved — a failed email never undoes it); customers' own changes send nothing.
  */
 @Injectable()
 export class AppointmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger("Appointments");
+
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional so unit tests can build the service without it.
+    @Optional() private readonly notifier?: NotifierService,
+  ) {}
 
   async list(user: AuthUser, query: AppointmentListQuery): Promise<Paginated<AppointmentSummary>> {
     const { start, end } = this.today();
@@ -139,6 +149,8 @@ export class AppointmentsService {
       });
       return appointment.id;
     });
+    // A staff (phone) booking is confirmed straight away.
+    if (!isCustomer) await this.notify(id, "confirmed");
     return this.findOne(user, id);
   }
 
@@ -157,6 +169,7 @@ export class AppointmentsService {
         changes: { scheduledAt: { from: current.scheduledAt, to: scheduledAt.toISOString() } },
       });
     });
+    if (user.role !== "CUSTOMER") await this.notify(id, "rescheduled");
     return this.findOne(user, id);
   }
 
@@ -187,7 +200,29 @@ export class AppointmentsService {
         changes: { status: { from: current.status, to }, ...(reason ? { reason } : {}) },
       });
     });
+    if (user.role !== "CUSTOMER" && (to === "CONFIRMED" || to === "CANCELLED")) {
+      await this.notify(id, to === "CONFIRMED" ? "confirmed" : "cancelled");
+    }
     return this.findOne(user, id);
+  }
+
+  /** Emails the customer about a change staff made. Never throws: the change is already saved. */
+  private async notify(id: string, kind: Exclude<AppointmentEmailKind, "reminder">): Promise<void> {
+    if (!this.notifier) return;
+    try {
+      const appointment = await this.prisma.appointment.findUniqueOrThrow({
+        where: { id },
+        include: {
+          customer: { select: { id: true, firstName: true, email: true, notifyConfirmed: true } },
+          vehicle: { select: { make: true, model: true, plate: true } },
+        },
+      });
+      const { subject, body } = appointmentEmail(kind, appointment.customer.firstName, appointment);
+      const type = ({ confirmed: "APPOINTMENT_CONFIRMED", rescheduled: "APPOINTMENT_RESCHEDULED", cancelled: "APPOINTMENT_CANCELLED" } as const)[kind];
+      await this.notifier.send({ type, customer: appointment.customer, subject, body, appointmentId: id, recordSkipped: true });
+    } catch (error) {
+      this.logger.warn(`Couldn't email the customer about appointment ${id}: ${(error as Error).message}`);
+    }
   }
 
   /** The appointment (scoped: someone else's → 404), if `action` is allowed on it right now. */

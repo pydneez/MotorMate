@@ -8,6 +8,7 @@ import {
   CreateAppointmentSchema,
 } from "@motormate/types";
 import { createPrismaMock, makeAuthUser } from "../../test/prisma-mock";
+import type { NotifierService } from "../notifications/notifier.service";
 import { AppointmentsService } from "./appointments.service";
 
 // Wednesday 21 Oct 2026, 10:00 in Bangkok.
@@ -25,15 +26,16 @@ describe("appointment rules (packages/types)", () => {
   it("offers half-hour slots from opening until the last half hour", () => {
     const slots = appointmentSlots();
     expect(slots[0]).toBe("08:00");
-    expect(slots.at(-1)).toBe("16:30");
-    expect(slots).toHaveLength(18);
+    expect(slots.at(-1)).toBe("17:30");
+    expect(slots).toHaveLength(20);
   });
 
   it("accepts shop hours with at least 2 hours' notice, up to 60 days ahead", () => {
     expect(bookingTimeError(at("2026-10-21", "12:00"), NOW)).toBeNull();
     expect(bookingTimeError(at("2026-10-21", "11:30"), NOW)).toMatch(/at least 2 hours/);
     expect(bookingTimeError(at("2026-10-25", "10:00"), NOW)).toMatch(/Mon–Sat/); // Sunday
-    expect(bookingTimeError(at("2026-10-22", "17:00"), NOW)).toMatch(/between 08:00 and 16:30/);
+    expect(bookingTimeError(at("2026-10-22", "17:30"), NOW)).toBeNull();
+    expect(bookingTimeError(at("2026-10-22", "18:00"), NOW)).toMatch(/between 08:00 and 17:30/);
     expect(bookingTimeError(at("2026-10-22", "10:15"), NOW)).toMatch(/half hour/);
     expect(bookingTimeError(at("2026-12-21", "10:00"), NOW)).toMatch(/at most 60 days/);
   });
@@ -129,7 +131,7 @@ describe("AppointmentsService", () => {
     const { prisma, appointments } = setup();
     prisma.appointment.findFirst.mockResolvedValue(row({ status: "CONFIRMED", scheduledAt: at("2026-10-21", "11:00") }));
     await expect(appointments.cancel(customer, "appt-1", {})).rejects.toThrow(
-      new BadRequestException("It's less than 2 hours away, so it can't be changed online. Please call us on 02-000-0000."),
+      new BadRequestException("It's less than 2 hours away, so it can't be changed online. Please call us on 02-676-7676."),
     );
     expect(prisma.appointment.updateMany).not.toHaveBeenCalled();
   });
@@ -173,5 +175,37 @@ describe("AppointmentsService", () => {
     expect(staff).toEqual(expect.objectContaining({ status: { in: ["REQUESTED", "CONFIRMED"] } }));
     expect(staff.scheduledAt).toBeUndefined();
     expect(minePast.OR).toEqual([{ status: { notIn: ["REQUESTED", "CONFIRMED"] } }, { scheduledAt: { lt: NOW } }]);
+  });
+
+  describe("emails to the customer", () => {
+    function withNotifier(send = jest.fn().mockResolvedValue("sent")) {
+      const { prisma, service } = createPrismaMock();
+      prisma.appointment.findFirst.mockResolvedValue(row());
+      prisma.appointment.updateMany.mockResolvedValue({ count: 1 });
+      prisma.appointment.findUniqueOrThrow.mockResolvedValue({
+        ...row({ status: "CONFIRMED" }),
+        customer: { id: "cust-1", firstName: "Jordan", email: "jordan@example.com", notifyConfirmed: true },
+      });
+      const appointments = new AppointmentsService(service, { send } as unknown as NotifierService);
+      return { appointments, send };
+    }
+
+    it("emails when staff confirm or cancel, but not when the customer cancels", async () => {
+      const { appointments, send } = withNotifier();
+      await appointments.confirm(advisor, "appt-1");
+      expect(send.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ type: "APPOINTMENT_CONFIRMED", appointmentId: "appt-1", recordSkipped: true, subject: "[MOTORMATE] Appointment confirmed: Thu 22 Oct 2026, 10:00" }),
+      );
+      await appointments.cancel(advisor, "appt-1", {});
+      expect(send.mock.calls[1][0].type).toBe("APPOINTMENT_CANCELLED");
+      await appointments.cancel(customer, "appt-1", {});
+      expect(send).toHaveBeenCalledTimes(2);
+    });
+
+    it("still succeeds when the email fails", async () => {
+      const { appointments, send } = withNotifier(jest.fn().mockRejectedValue(new Error("SNS down")));
+      await expect(appointments.confirm(advisor, "appt-1")).resolves.toBeDefined();
+      expect(send).toHaveBeenCalled();
+    });
   });
 });
