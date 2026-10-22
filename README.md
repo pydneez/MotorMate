@@ -114,11 +114,18 @@ day-to-day dev. To keep local data consistent enough to be useful:
   re-run — it won't duplicate rows.
 - Never commit `.env` — only `.env.example` should be in git.
 
+## Deploying to AWS
+
+Each team member can run the whole app in their own AWS Academy Learner Lab account with
+`bash infra/scripts/up.sh`, and must tear it down with `bash infra/scripts/down.sh` before
+ending the lab session. Full guide: [infra/README.md](infra/README.md).
+
 ## Project structure
 
 ```
 frontend/        Next.js frontend
 backend/          NestJS backend
 packages/types/  Shared TypeScript types used by both apps
+infra/           AWS deployment (CloudFormation + scripts)
 docker-compose.yml
 ```

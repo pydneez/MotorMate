@@ -1,0 +1,262 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  MotorMate app: load balancer, ECS Fargate services for the backend and frontend
+  containers, and an API Gateway HTTP API that gives the whole site HTTPS. Deployed by
+  infra/scripts/up.sh as stack "motormate-app" and deleted nightly by down.sh.
+
+#   Browser ──HTTPS──▶ API Gateway (https://<id>.execute-api.<region>.amazonaws.com)
+#                          │ every path, proxied
+#                          ▼
+#                    ALB :80 ── /v1, /v1/* ──▶ backend service  (NestJS :8080)
+#                           └── everything else ──▶ frontend service (Next.js :3000)
+
+Parameters:
+  BackendImage:
+    Type: String
+    Description: full ECR image URI with tag
+  FrontendImage:
+    Type: String
+    Description: full ECR image URI with tag
+  LabRoleArn:
+    Type: String
+    Description: Learner Lab's pre-made LabRole (no other roles can be created)
+  DbPassword:
+    Type: String
+    NoEcho: true
+  JwtSecret:
+    Type: String
+    NoEcho: true
+  NextAuthSecret:
+    Type: String
+    NoEcho: true
+  BackendCount:
+    Type: Number
+    Default: 2
+    Description: at least 2, so the API survives one container failing
+  FrontendCount:
+    Type: Number
+    Default: 1
+
+Resources:
+  # ── Load balancer ─────────────────────────────────────────────────────────────
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: motormate
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Split [",", !ImportValue motormate-PublicSubnets]
+      SecurityGroups: [!ImportValue motormate-AlbSecurityGroup]
+
+  BackendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: motormate-backend
+      VpcId: !ImportValue motormate-VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: 8080
+      HealthCheckPath: /v1
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: "15" }
+
+  FrontendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: motormate-frontend
+      VpcId: !ImportValue motormate-VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: 3000
+      HealthCheckPath: /login
+      HealthCheckIntervalSeconds: 15
+      HealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - { Key: deregistration_delay.timeout_seconds, Value: "15" }
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - { Type: forward, TargetGroupArn: !Ref FrontendTargetGroup }
+
+  BackendRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref Listener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          PathPatternConfig: { Values: ["/v1", "/v1/*"] }
+      Actions:
+        - { Type: forward, TargetGroupArn: !Ref BackendTargetGroup }
+
+  # ── HTTPS in front of the load balancer ─────────────────────────────────────
+  # CloudFront is denied in Learner Lab; an HTTP API's default endpoint has an AWS
+  # certificate. Two routes because "/" doesn't match "/{proxy+}".
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: motormate
+      ProtocolType: HTTP
+
+  ProxyIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: ANY
+      IntegrationUri: !Sub "http://${LoadBalancer.DNSName}/{proxy}"
+      PayloadFormatVersion: "1.0"
+
+  RootIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: ANY
+      IntegrationUri: !Sub "http://${LoadBalancer.DNSName}/"
+      PayloadFormatVersion: "1.0"
+
+  ProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /{proxy+}
+      Target: !Sub integrations/${ProxyIntegration}
+
+  RootRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: ANY /
+      Target: !Sub integrations/${RootIntegration}
+
+  DefaultStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+
+  # ── Containers ────────────────────────────────────────────────────────────────
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: motormate
+
+  BackendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: motormate-backend
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn: !Ref LabRoleArn
+      TaskRoleArn: !Ref LabRoleArn
+      ContainerDefinitions:
+        - Name: backend
+          Image: !Ref BackendImage
+          Essential: true
+          PortMappings: [{ ContainerPort: 8080 }]
+          Environment:
+            - Name: DATABASE_URL
+              Value: !Sub
+                - "postgresql://motormate:${DbPassword}@${DbHost}:5432/motormate?schema=public"
+                - DbHost: !ImportValue motormate-DbHost
+            # RDS requires SSL; the image carries AWS's RDS certificate bundle.
+            - { Name: DATABASE_SSL_CA, Value: /app/rds-global-bundle.pem }
+            - { Name: JWT_SECRET, Value: !Ref JwtSecret }
+            - { Name: CORS_ORIGIN, Value: !GetAtt HttpApi.ApiEndpoint }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: /motormate/backend
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: backend
+
+  FrontendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: motormate-frontend
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn: !Ref LabRoleArn
+      TaskRoleArn: !Ref LabRoleArn
+      ContainerDefinitions:
+        - Name: frontend
+          Image: !Ref FrontendImage
+          Essential: true
+          PortMappings: [{ ContainerPort: 3000 }]
+          Environment:
+            - { Name: NEXTAUTH_URL, Value: !GetAtt HttpApi.ApiEndpoint }
+            - { Name: NEXTAUTH_SECRET, Value: !Ref NextAuthSecret }
+            - { Name: API_INTERNAL_URL, Value: !Sub "http://${LoadBalancer.DNSName}/v1" }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: /motormate/frontend
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: frontend
+
+  BackendService:
+    Type: AWS::ECS::Service
+    DependsOn: BackendRule
+    Properties:
+      ServiceName: backend
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      TaskDefinition: !Ref BackendTaskDefinition
+      DesiredCount: !Ref BackendCount
+      HealthCheckGracePeriodSeconds: 90
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true }
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Split [",", !ImportValue motormate-PublicSubnets]
+          SecurityGroups: [!ImportValue motormate-BackendSecurityGroup]
+      LoadBalancers:
+        - { ContainerName: backend, ContainerPort: 8080, TargetGroupArn: !Ref BackendTargetGroup }
+
+  FrontendService:
+    Type: AWS::ECS::Service
+    DependsOn: Listener
+    Properties:
+      ServiceName: frontend
+      Cluster: !Ref Cluster
+      LaunchType: FARGATE
+      TaskDefinition: !Ref FrontendTaskDefinition
+      DesiredCount: !Ref FrontendCount
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 200
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true }
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Split [",", !ImportValue motormate-PublicSubnets]
+          SecurityGroups: [!ImportValue motormate-FrontendSecurityGroup]
+      LoadBalancers:
+        - { ContainerName: frontend, ContainerPort: 3000, TargetGroupArn: !Ref FrontendTargetGroup }
+
+Outputs:
+  SiteUrl:
+    Description: the HTTPS address of the whole site
+    Value: !GetAtt HttpApi.ApiEndpoint
+  LoadBalancerUrl:
+    Description: plain-HTTP fallback (dev only)
+    Value: !Sub "http://${LoadBalancer.DNSName}"
+  ClusterName:
+    Value: !Ref Cluster

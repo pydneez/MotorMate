@@ -8,6 +8,7 @@
 #   JWT_SECRET    signs/verifies the API access token
 #   CORS_ORIGIN   the frontend's origin, e.g. https://main.xxxx.amplifyapp.com
 #   PORT          defaults to 8080
+#   DATABASE_SSL_CA  /app/rds-global-bundle.pem on AWS (RDS requires SSL); unset locally
 # On start the container applies pending Prisma migrations, then starts the API.
 
 # ── 1. Build: install the workspace, compile types + backend, make a prod-only bundle ──
@@ -51,8 +52,11 @@ COPY --from=build --chown=node:node /prod/backend/node_modules ./node_modules
 COPY --from=build --chown=node:node /prod/backend/package.json ./package.json
 COPY --from=build --chown=node:node /repo/backend/dist ./dist
 # The seed, compiled to JS (the image has no ts-node). Run it as a one-off task with the
-# command override `node dist-seed/seed.js`; it upserts, so re-running is safe.
+# command override `node dist-seed/prisma/seed.js`; it upserts, so re-running is safe.
 COPY --from=build --chown=node:node /repo/backend/dist-seed ./dist-seed
+# AWS's certificate bundle for RDS, which requires SSL. ECS sets DATABASE_SSL_CA to this
+# path so the server's certificate is verified (see src/prisma/pg-config.ts).
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem ./rds-global-bundle.pem
 COPY --from=build --chown=node:node /repo/backend/prisma ./prisma
 COPY --from=build --chown=node:node /repo/backend/prisma.config.ts ./prisma.config.ts
 

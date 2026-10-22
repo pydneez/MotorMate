@@ -1,0 +1,95 @@
+# Deploying MotorMate to AWS (Learner Lab)
+
+Everything needed to run MotorMate in **your own** AWS Academy Learner Lab account:
+three CloudFormation stacks and a few Bash scripts. Any team member can bring the whole
+environment up, and tear it down again, with one command each.
+
+```
+Browser ──HTTPS──▶ API Gateway HTTP API  (https://<id>.execute-api.us-east-1.amazonaws.com)
+                        │ every path, proxied
+                        ▼
+                  Load balancer :80 ── /v1, /v1/* ──▶ backend  (NestJS, 2 containers)
+                                  └── everything else ──▶ frontend (Next.js, 1 container)
+                                                              │
+     backend containers ──5432──▶ RDS PostgreSQL (isolated subnets, encrypted, 7-day backups)
+     container logs ──▶ CloudWatch: /motormate/backend, /motormate/frontend
+```
+
+| Stack | Template | What's in it | After `down.sh` |
+|---|---|---|---|
+| `motormate-base` | `cloudformation/base.yml` | VPC, 2 public + 2 isolated subnets, security groups, ECR repos, log groups | kept (free) |
+| `motormate-db` | `cloudformation/db.yml` | RDS PostgreSQL 16, `db.t3.micro` | deleted (re-seeded by `up.sh`) |
+| `motormate-app` | `cloudformation/app.yml` | load balancer, ECS cluster + 2 services, API Gateway | deleted |
+
+Why it looks like this (Learner Lab limits, tested Oct 2026): CloudFront is denied and
+Amplify's role is restricted, so HTTPS comes from API Gateway and the frontend is a
+container too; no IAM roles can be created, so every container uses `LabRole`; a NAT
+Gateway would eat the $50 budget, so containers sit in public subnets behind security
+groups that only accept traffic from the load balancer.
+
+## Before you start
+
+- **Git Bash** (comes with Git for Windows), the **AWS CLI v2**, and **Docker Desktop**
+  running. On Windows, run the scripts from Git Bash, not PowerShell or WSL.
+- Start the lab (AWS Academy → Learner Lab → **Start Lab**), then **AWS Details → AWS CLI:
+  Show** and paste the three lines into `~/.aws/credentials` under `[default]`. They expire
+  with the session — repeat every time. Check with `aws sts get-caller-identity`.
+- Region `us-east-1` (override with `AWS_REGION=us-west-2`).
+
+## Daily use
+
+```bash
+bash infra/scripts/up.sh        # ~15 min from nothing (RDS is the slow part); prints the site URL
+bash infra/scripts/smoke.sh     # health, login page, sign-in, an authenticated API call
+bash infra/scripts/status.sh    # what's running and roughly what it costs
+bash infra/scripts/down.sh      # BEFORE you end the lab session
+```
+
+**Always run `down.sh` when you stop working.** Learner Lab keeps resources running — and
+billing — after the session ends. While up, the environment costs about **$0.10/hour**.
+
+Sign in with the seeded logins (password `password123`): `admin@`, `advisor@`,
+`mechanic@motormate.example`, customer `jordan.lee@example.com`.
+
+## All scripts
+
+| Script | What it does |
+|---|---|
+| `up.sh [--multi-az]` | base → database + images (in parallel) → app → seed. Safe to re-run: it updates what changed. `--multi-az` for the demo account. |
+| `build-push.sh` | builds both images, tags them with the git commit (`-dirty` if uncommitted), pushes to ECR. Skips images already pushed. |
+| `seed.sh` | runs the seed as a one-off backend container (`node dist-seed/prisma/seed.js`); upserts, so re-running is harmless. |
+| `smoke.sh` | end-to-end check through the HTTPS address. |
+| `status.sh` | stack states, running containers, database, cost per hour. |
+| `down.sh [--keep-db]` | deletes the app stack and the database (or keeps it with `--keep-db`). |
+| `nuke.sh [--yes]` | deletes all three stacks, ECR images and logs. Dry run without `--yes`. |
+| `cleanup-lab-check.sh` | removes leftovers from `LEARNER_LAB_CHECKLIST.md` (the one-off lab test). |
+
+Secrets (`DB_PASSWORD`, `JWT_SECRET`, `NEXTAUTH_SECRET`) are generated on the first `up.sh`
+into `infra/.secrets/<account-id>.env` (gitignored) and passed to CloudFormation as hidden
+(`NoEcho`) parameters. Don't commit or share that folder.
+
+## Deploying a new version
+
+Commit, then run `up.sh` again: it builds images for the new commit and ECS rolls the
+containers over one at a time (the backend keeps one container serving). Database
+migrations run automatically when the backend starts.
+
+## Demo account (Nov 8–17)
+
+```bash
+bash infra/scripts/up.sh --multi-az   # primary + standby database, like the kickoff diagram
+```
+
+Leave it running through the presentation; the dev account keeps the nightly `down.sh`.
+
+## When something goes wrong
+
+- **A stack fails:** the script prints the failing resources and reasons. CloudFormation
+  rolls back by itself; fix and re-run `up.sh`. A stack stuck in `ROLLBACK_COMPLETE` must
+  be deleted first (`down.sh`, or `nuke.sh --yes`).
+- **Containers keep restarting:** CloudWatch → Log groups → `/motormate/backend` or
+  `/motormate/frontend`. ECS's circuit breaker rolls a bad deployment back.
+- **Expired credentials:** every script stops with "AWS credentials missing or expired" —
+  refresh `~/.aws/credentials`.
+- **API Gateway** has a 30-second request limit; the slowest MotorMate request is well
+  under a second. Plain-HTTP fallback for dev: the `LoadBalancerUrl` stack output.

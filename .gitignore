@@ -29,3 +29,6 @@ pnpm-debug.log*
 Thumbs.db
 # typescript incremental build info
 *.tsbuildinfo
+
+# AWS deploy scripts: generated secrets, last image tag, deploy logs
+infra/.secrets/
