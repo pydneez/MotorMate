@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { clearableEmail, clearableText } from "./common";
+import { blankAsNull, blankAsUndefined, clearableEmail, clearableText, LineIdSchema, personName } from "./common";
 import { ThaiPhoneSchema } from "./thai";
 import type { VehicleSummary } from "./vehicle";
 
@@ -46,11 +46,11 @@ const optionalEmail = z
   .or(z.literal("").transform(() => undefined));
 
 export const CreateCustomerSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required"),
-  lastName: z.string().trim().min(1, "Last name is required"),
+  firstName: personName("First name"),
+  lastName: personName("Last name"),
   phone: ThaiPhoneSchema,
   email: optionalEmail,
-  lineId: optionalText,
+  lineId: blankAsUndefined(LineIdSchema),
   notes: optionalText,
 });
 
@@ -58,11 +58,11 @@ export type CreateCustomerInput = z.input<typeof CreateCustomerSchema>;
 
 /** In edit forms an emptied field means "clear it" (null), unlike create where it's just absent. */
 export const UpdateCustomerSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required").optional(),
-  lastName: z.string().trim().min(1, "Last name is required").optional(),
+  firstName: personName("First name").optional(),
+  lastName: personName("Last name").optional(),
   phone: ThaiPhoneSchema.optional(),
   email: clearableEmail(),
-  lineId: clearableText(),
+  lineId: blankAsNull(LineIdSchema),
   notes: clearableText(),
 });
 
@@ -75,7 +75,7 @@ export type UpdateCustomerInput = z.input<typeof UpdateCustomerSchema>;
 export const UpdateOwnCustomerSchema = z
   .object({
     phone: ThaiPhoneSchema.optional(),
-    lineId: clearableText(50),
+    lineId: blankAsNull(LineIdSchema),
   })
   .strict();
 

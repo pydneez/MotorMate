@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { clearableText, ListQuerySchema, wholeNumber } from "./common";
+import { clearableText, ListQuerySchema, numberInput, textWithLetters, wholeNumber } from "./common";
 import { CreateCustomerSchema } from "./customer";
 import { money } from "./inventory";
 import { CreateVehicleSchema } from "./vehicle";
@@ -82,7 +82,7 @@ export function parseWorkOrderNumber(input: string): number | null {
 export const CreateWorkOrderSchema = z.object({
   vehicleId: z.string().min(1, "Choose a vehicle"),
   mileageIn: wholeNumber("Mileage", (n) => n.nonnegative("Mileage can't be negative")),
-  complaint: z.string().trim().min(1, "Describe the reason for the visit").max(1000),
+  complaint: textWithLetters("Complaint", { max: 1000, required: "Describe the reason for the visit" }),
   mechanicId: z
     .string()
     .optional()
@@ -172,7 +172,7 @@ export type ChangeWorkOrderStatusInput = z.input<typeof ChangeWorkOrderStatusSch
 
 /** A labour line on the job. */
 export const AddLabourSchema = z.object({
-  description: z.string().trim().min(1, "Describe the work").max(200),
+  description: textWithLetters("Description", { max: 200, required: "Describe the work" }),
   laborCost: money("Labour cost"),
 });
 
@@ -189,7 +189,7 @@ export type AddPartInput = z.input<typeof AddPartSchema>;
 /** A blank form field → undefined; anything else must be a positive whole number. */
 const optionalPositiveNumber = (label: string) =>
   z.preprocess(
-    (value) => (value === "" || value === null || value === undefined ? undefined : Number(value)),
+    numberInput,
     z
       .number({ invalid_type_error: `${label} must be a number` })
       .int(`${label} must be a whole number`)
@@ -203,7 +203,7 @@ const optionalPositiveNumber = (label: string) =>
  */
 export const AddRecommendationSchema = z
   .object({
-    description: z.string().trim().min(1, "Describe the service").max(200),
+    description: textWithLetters("Description", { max: 200, required: "Describe the service" }),
     dueMileage: optionalPositiveNumber("Due mileage"),
     /** yyyy-mm-dd */
     dueDate: z

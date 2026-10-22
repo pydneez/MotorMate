@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { clearableText, wholeNumber } from "./common";
+import { blankAsNull, blankAsUndefined, textWithLetters, wholeNumber } from "./common";
 import { ThaiPlateSchema, ThaiProvinceSchema } from "./thai";
 import type { WorkOrderStatus } from "./work-order";
 
@@ -61,6 +61,28 @@ const VinSchema = z
   .toUpperCase()
   .regex(/^[A-HJ-NPR-Z0-9]{17}$/, "VIN must be 17 characters (no I, O or Q)");
 
+/** Letters (any script), digits, spaces and "- . &": "Mercedes-Benz", "BMW", "Land Rover". */
+const MakeSchema = textWithLetters("Make", {
+  max: 40,
+  allowed: /^[\p{L}\p{M}\d\s.&-]+$/u,
+  allowedHint: "letters, digits, spaces, - . and &",
+});
+
+/** May be all digits (Toyota 86, Peugeot 3008) — the make already needs a letter. */
+const ModelSchema = textWithLetters("Model", {
+  max: 60,
+  contains: { pattern: /[\p{L}\d]/u, message: "Model must contain letters or digits" },
+  allowed: /^[\p{L}\p{M}\d\s./+()-]+$/u,
+  allowedHint: "letters, digits, spaces, - . / + and ( )",
+});
+
+/** "White", "Dark grey", "Black/White", "ขาว" — never a number. */
+const ColorSchema = textWithLetters("Color", {
+  max: 30,
+  allowed: /^[\p{L}\p{M}\s/-]+$/u,
+  allowedHint: "letters, spaces, - and /",
+});
+
 /** plateNormalized is derived server-side with normalizePlate, never sent by clients. */
 export const CreateVehicleSchema = z.object({
   /** Required for staff; ignored for customers, who can only add to their own record. */
@@ -68,16 +90,12 @@ export const CreateVehicleSchema = z.object({
   vin: VinSchema,
   plate: ThaiPlateSchema,
   province: ThaiProvinceSchema,
-  make: z.string().trim().min(1, "Make is required"),
-  model: z.string().trim().min(1, "Model is required"),
+  make: MakeSchema,
+  model: ModelSchema,
   year: wholeNumber("Year", (n) =>
     n.gte(1950, "Year looks too old").lte(new Date().getFullYear() + 1, "Year is in the future"),
   ),
-  color: z
-    .string()
-    .trim()
-    .optional()
-    .transform((value) => value || undefined),
+  color: blankAsUndefined(ColorSchema),
   mileage: wholeNumber("Mileage", (n) => n.nonnegative("Mileage can't be negative")),
 });
 
@@ -90,7 +108,7 @@ export type CreateVehicleInput = z.input<typeof CreateVehicleSchema>;
 export const UpdateVehicleSchema = CreateVehicleSchema.omit({ mileage: true, customerId: true })
   .extend({
     /** An emptied field clears the color. */
-    color: clearableText(),
+    color: blankAsNull(ColorSchema),
   })
   .partial()
   .strict();
@@ -99,7 +117,7 @@ export type UpdateVehicleInput = z.input<typeof UpdateVehicleSchema>;
 
 export const MileageCorrectionSchema = z.object({
   mileage: wholeNumber("Mileage", (n) => n.nonnegative("Mileage can't be negative")),
-  reason: z.string().trim().min(3, "Give a reason for the correction"),
+  reason: textWithLetters("Reason", { min: 3, max: 200, required: "Give a reason for the correction" }),
 });
 
 export type MileageCorrectionInput = z.input<typeof MileageCorrectionSchema>;

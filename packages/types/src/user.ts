@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PASSWORD_MIN_LENGTH } from "./auth";
-import { ListQuerySchema, QueryBooleanSchema } from "./common";
+import { ListQuerySchema, personName, QueryBooleanSchema } from "./common";
 import { RoleSchema } from "./role";
 
 /** Roles an admin can give through staff management; customers self-register. */
@@ -34,8 +34,8 @@ const PasswordSchema = z
   .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`);
 
 export const CreateStaffSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required"),
-  lastName: z.string().trim().min(1, "Last name is required"),
+  firstName: personName("First name"),
+  lastName: personName("Last name"),
   email: z.string().trim().toLowerCase().email("Enter a valid email"),
   role: StaffRoleSchema,
   temporaryPassword: PasswordSchema,
@@ -44,8 +44,8 @@ export const CreateStaffSchema = z.object({
 export type CreateStaffInput = z.input<typeof CreateStaffSchema>;
 
 export const UpdateStaffSchema = z.object({
-  firstName: z.string().trim().min(1, "First name is required").optional(),
-  lastName: z.string().trim().min(1, "Last name is required").optional(),
+  firstName: personName("First name").optional(),
+  lastName: personName("Last name").optional(),
   role: StaffRoleSchema.optional(),
 });
 

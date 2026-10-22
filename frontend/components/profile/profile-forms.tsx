@@ -96,7 +96,7 @@ export function OwnContactForm({ phone, lineId }: { phone: string; lineId: strin
     <form onSubmit={onSubmit} noValidate className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Phone" name="phone" type="tel" defaultValue={phone} error={fieldErrors.phone} />
-        <Field label="LINE ID" name="lineId" defaultValue={lineId} error={fieldErrors.lineId} />
+        <Field label="LINE ID" name="lineId" maxLength={20} defaultValue={lineId} error={fieldErrors.lineId} />
       </div>
       {error && <Alert>{error}</Alert>}
       {saved && <Alert tone="success">Contact details saved.</Alert>}

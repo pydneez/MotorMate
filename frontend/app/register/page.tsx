@@ -64,8 +64,8 @@ export default function RegisterPage() {
     <AuthCard title="Create your MotorMate account">
       <form onSubmit={onSubmit} noValidate className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="First name" name="firstName" autoComplete="given-name" error={fieldErrors.firstName} />
-          <Field label="Last name" name="lastName" autoComplete="family-name" error={fieldErrors.lastName} />
+          <Field label="First name" name="firstName" maxLength={60} autoComplete="given-name" error={fieldErrors.firstName} />
+          <Field label="Last name" name="lastName" maxLength={60} autoComplete="family-name" error={fieldErrors.lastName} />
           <Field
             label="Phone"
             name="phone"
@@ -74,7 +74,7 @@ export default function RegisterPage() {
             placeholder="081-234-5678"
             error={fieldErrors.phone}
           />
-          <Field label="LINE ID (optional)" name="lineId" error={fieldErrors.lineId} />
+          <Field label="LINE ID (optional)" name="lineId" maxLength={20} error={fieldErrors.lineId} />
         </div>
         <Field label="Email" name="email" type="email" autoComplete="email" error={fieldErrors.email} />
         <div className="grid gap-4 sm:grid-cols-2">
