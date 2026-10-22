@@ -1,6 +1,6 @@
-# Checks every pull request (and every push to main): typecheck, unit tests, and the
-# backend integration tests against a throwaway Postgres. Make "Typecheck & unit tests"
-# and "Integration tests" required checks on main so a red PR can't be merged.
+# Checks every pull request (and every push to main): typecheck, lint, unit tests, and the
+# backend integration tests against a throwaway Postgres. Make "Typecheck & unit tests",
+# "Lint" and "Integration tests" required checks on main so a red PR can't be merged.
 name: CI
 
 on:
@@ -49,6 +49,27 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+
+  # Its own job, so it shows as its own check on every PR.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The backend's promise rules use type information, which needs the Prisma client.
+      - name: Generate the Prisma client
+        run: pnpm db:generate
+      # Backend: ESLint 9 + typescript-eslint (incl. un-awaited promises).
+      # Frontend: next lint (Next.js, React hooks, TypeScript); warnings fail too.
+      - name: Lint (backend, frontend)
+        run: pnpm lint
 
   integration:
     name: Integration tests
