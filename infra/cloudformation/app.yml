@@ -144,12 +144,7 @@ Resources:
       StageName: $default
       AutoDeploy: true
 
-  # ── Containers ────────────────────────────────────────────────────────────────
-  Cluster:
-    Type: AWS::ECS::Cluster
-    Properties:
-      ClusterName: motormate
-
+  # ── Containers (the ECS cluster itself is in motormate-base) ────────────────────
   BackendTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -212,7 +207,7 @@ Resources:
     DependsOn: BackendRule
     Properties:
       ServiceName: backend
-      Cluster: !Ref Cluster
+      Cluster: !ImportValue motormate-Cluster
       LaunchType: FARGATE
       TaskDefinition: !Ref BackendTaskDefinition
       DesiredCount: !Ref BackendCount
@@ -234,7 +229,7 @@ Resources:
     DependsOn: Listener
     Properties:
       ServiceName: frontend
-      Cluster: !Ref Cluster
+      Cluster: !ImportValue motormate-Cluster
       LaunchType: FARGATE
       TaskDefinition: !Ref FrontendTaskDefinition
       DesiredCount: !Ref FrontendCount
@@ -259,4 +254,4 @@ Outputs:
     Description: plain-HTTP fallback (dev only)
     Value: !Sub "http://${LoadBalancer.DNSName}"
   ClusterName:
-    Value: !Ref Cluster
+    Value: !ImportValue motormate-Cluster

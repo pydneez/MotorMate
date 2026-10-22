@@ -19,6 +19,12 @@ Parameters:
   InstanceClass:
     Type: String
     Default: db.t3.micro
+  MigrateImage:
+    Type: String
+    Description: full ECR URI of the migrate image (backend/Dockerfile --target migrate)
+  LabRoleArn:
+    Type: String
+    Description: Learner Lab's pre-made LabRole (no other roles can be created)
 
 Resources:
   DbSubnetGroup:
@@ -51,6 +57,32 @@ Resources:
       DeleteAutomatedBackups: true
       DeletionProtection: false
       AutoMinorVersionUpgrade: true
+
+  # `prisma migrate deploy` as a one-off task (infra/scripts/migrate.sh), run before each
+  # rollout so new API containers never start against an old schema.
+  MigrateTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: motormate-migrate
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn: !Ref LabRoleArn
+      TaskRoleArn: !Ref LabRoleArn
+      ContainerDefinitions:
+        - Name: migrate
+          Image: !Ref MigrateImage
+          Essential: true
+          Environment:
+            - Name: DATABASE_URL
+              Value: !Sub "postgresql://motormate:${DbPassword}@${Database.Endpoint.Address}:5432/motormate?schema=public"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: /motormate/backend
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: migrate
 
 Outputs:
   DbHost:

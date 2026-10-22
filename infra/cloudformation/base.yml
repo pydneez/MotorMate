@@ -168,6 +168,25 @@ Resources:
           "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},
           "action":{"type":"expire"}}]}
 
+  # Prisma CLI + migrations only; run as a one-off task by migrate.sh before each rollout.
+  MigrateRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: motormate-migrate
+      EmptyOnDelete: true
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules":[{"rulePriority":1,"description":"Keep the last 10 images",
+          "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},
+          "action":{"type":"expire"}}]}
+
+  # Lives here rather than in the app stack so the migration task can run before the app
+  # stack rolls out new containers. An empty cluster costs nothing.
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: motormate
+
   BackendLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -202,6 +221,9 @@ Outputs:
   DbSecurityGroup:
     Value: !Ref DbSecurityGroup
     Export: { Name: motormate-DbSecurityGroup }
+  Cluster:
+    Value: !Ref Cluster
+    Export: { Name: motormate-Cluster }
   BackendRepositoryUri:
     Value: !GetAtt BackendRepository.RepositoryUri
   FrontendRepositoryUri:
