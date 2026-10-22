@@ -158,7 +158,7 @@ export function VehicleForm({
                   {match.make} {match.model} ({fullName(match.owner)})
                 </Link>
               ))}
-              . Check it isn't the same car before saving.
+              . Check it isn&apos;t the same car before saving.
             </>
           ) : (
             "A vehicle with this plate and province is already registered. Check the plate before saving."

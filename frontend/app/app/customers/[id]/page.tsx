@@ -91,7 +91,7 @@ export default async function CustomerPage({ params }: { params: { id: string } 
         </LinkButton>
       </div>
       {customer.vehicles.length === 0 ? (
-        <EmptyState title="No vehicles yet">Add this customer's first vehicle to start their service history.</EmptyState>
+        <EmptyState title="No vehicles yet">Add this customer&apos;s first vehicle to start their service history.</EmptyState>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {customer.vehicles.map((vehicle) => (
