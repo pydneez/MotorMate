@@ -1,6 +1,15 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { Calendar, Car, Wrench } from "lucide-react";
+import {
+  matchReportPreset,
+  reportPresetRange,
+  ReportQuerySchema,
+  WORK_ORDER_STATUS_LABEL,
+  type OpenWorkOrderStatus,
+  type ReportQuery,
+  type ReportSummary,
+} from "@motormate/types";
 import type {
   AppointmentCounts,
   AppointmentSummary,
@@ -14,10 +23,17 @@ import type {
 } from "@motormate/types";
 import { authOptions } from "@/auth";
 import { AppointmentStatusBadge } from "@/components/appointments/appointment-status-badge";
+import { CsvDownloads } from "@/components/reports/csv-downloads";
+import { ReportRange } from "@/components/reports/report-range";
+import { BUCKET_LABEL, formatDuration, formatPercent, PartsTable, Section, Stat, Tile } from "@/components/reports/report-widgets";
+import { RevenueChart } from "@/components/reports/revenue-chart";
 import { ReminderStateBadge, dueText } from "@/components/reminders/reminder-badges";
+import { Alert, EmptyState } from "@/components/ui";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
-import { formatAppointmentTime } from "@/lib/format";
+import { api } from "@/lib/api";
+import { formatAppointmentTime, formatDate, formatTHB } from "@/lib/format";
 import { serverGet } from "@/lib/server";
+import { ReportDashboard } from "@/components/reports/report-dashboard";
 
 function greeting(): string {
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", timeZone: "Asia/Bangkok" }).format(new Date()));
@@ -67,7 +83,6 @@ const DUE_FOR_SERVICE_CARD: CardSpec = { label: "Due for service", note: "Due or
 
 const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, CardSpec[]> = {
   ADMIN: [
-    { label: "Revenue this month", note: "Reports module" },
     OPEN_WORK_ORDERS_CARD,
     LOW_STOCK_CARD,
     DUE_FOR_SERVICE_CARD,
@@ -207,7 +222,27 @@ async function CustomerDashboard() {
   );
 }
 
-export default async function DashboardPage() {
+type Props = { searchParams: Record<string, string | string[] | undefined> };
+
+async function AdminDashboard({ searchParams, token }: { searchParams: Props["searchParams"]; token: string }) {
+  const requested = ReportQuerySchema.safeParse({ from: searchParams.from, to: searchParams.to });
+  const hasRequest = searchParams.from !== undefined || searchParams.to !== undefined;
+  const range: ReportQuery = requested.success ? requested.data : reportPresetRange("this-month");
+  const rangeError = hasRequest && !requested.success ? Object.values(requested.error.flatten().fieldErrors).flat()[0] : null;
+  const report = await api<ReportSummary>(`/reports/summary?from=${range.from}&to=${range.to}`, { token }).catch(() => null);
+
+  return (
+    <ReportDashboard
+      key={`${range.from}_${range.to}`}
+      basePath="/app"
+      initialRange={range}
+      initialReport={report}
+      initialError={rangeError ? `${rangeError} — showing this month instead.` : null}
+    />
+  );
+}
+
+export default async function DashboardPage({ searchParams }: Props) {
   const session = await getServerSession(authOptions);
   if (!session) return null;
   const { user } = session;
@@ -231,11 +266,23 @@ export default async function DashboardPage() {
         {user.role === "CUSTOMER" ? (
           <CustomerDashboard />
         ) : (
-          <div className={`grid gap-4 sm:grid-cols-2 ${STAFF_CARDS[user.role].length > 4 ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4"}`}>
-            {STAFF_CARDS[user.role].map(({ source, ...card }) => {
-              const data = source ? cardData(source, inventory, workOrders, appointments, reminders) : null;
-              return <StatCard key={card.label} {...card} {...(data ?? {})} />;
-            })}
+          <div className="space-y-8">
+            <div
+              className={`grid gap-4 sm:grid-cols-2 ${
+                STAFF_CARDS[user.role].length > 4 ? "lg:grid-cols-3 xl:grid-cols-5" : STAFF_CARDS[user.role].length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"
+              }`}
+            >
+              {STAFF_CARDS[user.role].map(({ source, ...card }) => {
+                const data = source ? cardData(source, inventory, workOrders, appointments, reminders) : null;
+                return <StatCard key={card.label} {...card} {...(data ?? {})} />;
+              })}
+            </div>
+            {user.role === "ADMIN" && (
+              <section>
+                <h2 className="mb-4 text-lg font-semibold tracking-tight">Shop performance</h2>
+                <AdminDashboard searchParams={searchParams} token={session.accessToken} />
+              </section>
+            )}
           </div>
         )}
       </div>

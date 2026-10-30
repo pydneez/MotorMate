@@ -11,8 +11,8 @@ import { RemindersModule } from "./reminders/reminders.module";
 import { UsersModule } from "./users/users.module";
 import { VehiclesModule } from "./vehicles/vehicles.module";
 import { WorkOrdersModule } from "./work-orders/work-orders.module";
+import { ReportsModule } from "./reports/reports.module";
 
 @Module({
-  imports: [PrismaModule, AuthModule, HealthModule, UsersModule, CustomersModule, VehiclesModule, InventoryModule, WorkOrdersModule, InvoicesModule, AppointmentsModule, NotificationsModule, RemindersModule],
-})
+  imports: [PrismaModule, AuthModule, HealthModule, UsersModule, CustomersModule, VehiclesModule, InventoryModule, WorkOrdersModule, InvoicesModule, AppointmentsModule, NotificationsModule, RemindersModule, ReportsModule],})
 export class AppModule {}
