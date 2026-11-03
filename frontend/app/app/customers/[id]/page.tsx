@@ -1,13 +1,24 @@
 import { Mail, MessageCircle, Pencil, Phone, Plus } from "lucide-react";
-import type { CustomerDetail, CustomerDuplicates } from "@motormate/types";
+import type { CustomerDetail, CustomerDuplicates, Paginated, VisitSummary } from "@motormate/types";
+import { CustomerVisits } from "@/components/customers/customer-visits";
 import { MergeCustomers } from "@/components/customers/merge-customers";
 import { Alert, Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
 import { formatMonth, formatThaiPhone, fullName } from "@/lib/format";
 import { serverGet } from "@/lib/server";
 
-export default async function CustomerPage({ params }: { params: { id: string } }) {
+const VISITS_PAGE_SIZE = 10;
+
+export default async function CustomerPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: Record<string, string | string[] | undefined>;
+}) {
   const customer = await serverGet<CustomerDetail>(`/customers/${params.id}`);
+  const visitsPage = typeof searchParams.visits === "string" && /^\d+$/.test(searchParams.visits) ? Number(searchParams.visits) || 1 : 1;
+  const visits = await serverGet<Paginated<VisitSummary>>(`/customers/${customer.id}/visits?pageSize=${VISITS_PAGE_SIZE}&page=${visitsPage}`);
   // Other records with the same phone — candidates for merging (usually none, rarely one).
   const { byPhone } = await serverGet<CustomerDuplicates>(
     `/customers/duplicates?phone=${encodeURIComponent(customer.phone)}&excludeId=${customer.id}`,
@@ -99,6 +110,8 @@ export default async function CustomerPage({ params }: { params: { id: string } 
           ))}
         </div>
       )}
+
+      <CustomerVisits customerId={customer.id} data={visits} />
     </div>
   );
 }
