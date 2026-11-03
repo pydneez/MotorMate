@@ -1,7 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
-  addDays,
   bangkokParts,
   formatInvoiceNumber,
   formatThaiPhone,
@@ -18,6 +17,7 @@ import {
   type ReportSummary,
   type RevenueTotals,
 } from "@motormate/types";
+import { bangkokDayFilter } from "../common/utils/dates";
 import { PrismaService } from "../prisma/prisma.service";
 import { csvMoney, toCsv } from "./csv";
 
@@ -44,7 +44,7 @@ const bangkokStamp = (value: Date | null | undefined) => {
 const BANGKOK_LOCAL = (column: string) => Prisma.raw(`(${column} AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Bangkok')`);
 
 export function reportPeriod(range: ReportQuery): Period {
-  return { gte: new Date(`${range.from}T00:00:00+07:00`), lt: new Date(`${addDays(range.to, 1)}T00:00:00+07:00`) };
+  return bangkokDayFilter(range.from, range.to) as Period;
 }
 
 export function noShowRate(completed: number, checkedIn: number, noShow: number): number | null {
