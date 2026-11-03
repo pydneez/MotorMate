@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ListQuerySchema, textWithLetters } from "./common";
+import { checkDateRange, dateRangeFields, ListQuerySchema, textWithLetters } from "./common";
 import type { Role } from "./role";
 import { SHOP } from "./shop";
 
@@ -152,12 +152,27 @@ export const CancelAppointmentSchema = z.object({
 });
 export type CancelAppointmentInput = z.input<typeof CancelAppointmentSchema>;
 
-export const APPOINTMENT_VIEWS = ["requests", "today", "upcoming", "past"] as const;
+/** The tabs. "all" (staff) is every appointment, newest first, narrowed by the filters below. */
+export const APPOINTMENT_VIEWS = ["requests", "today", "upcoming", "past", "all"] as const;
 export type AppointmentView = (typeof APPOINTMENT_VIEWS)[number];
 
+/** Who made the booking: the customer online, or staff (a phone booking). */
+export const APPOINTMENT_BOOKED_BY = ["customer", "staff"] as const;
+export type AppointmentBookedBy = (typeof APPOINTMENT_BOOKED_BY)[number];
+
+/**
+ * ?view=&status=REQUESTED,CONFIRMED&from=&to=&bookedBy=&q= — status is a comma list; from/to
+ * are Bangkok days on the scheduled time. The filters narrow whichever tab is open.
+ */
 export const AppointmentListQuerySchema = ListQuerySchema.extend({
   view: z.enum(APPOINTMENT_VIEWS).optional(),
-});
+  status: z.preprocess(
+    (value) => (typeof value === "string" ? (value ? value.split(",") : undefined) : value),
+    z.array(AppointmentStatusSchema).min(1).optional(),
+  ),
+  bookedBy: z.enum(APPOINTMENT_BOOKED_BY).optional(),
+  ...dateRangeFields,
+}).superRefine(checkDateRange);
 export type AppointmentListQuery = z.output<typeof AppointmentListQuerySchema>;
 
 // ── Responses ────────────────────────────────────────────────────────────────

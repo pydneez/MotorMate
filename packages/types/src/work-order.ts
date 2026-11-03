@@ -65,6 +65,69 @@ export function allowedNextStatuses(
   return [];
 }
 
+// ── Status buttons and progress ───────────────────────────────────────────────
+
+/** The five steps of the normal path, for the progress bar ("Awaiting parts" is a pause). */
+export const WORK_ORDER_STEPS: WorkOrderStatus[] = ["CHECKED_IN", "DIAGNOSING", "IN_PROGRESS", "QUALITY_CHECK", "COMPLETED"];
+
+/** The usual next step from each open status — shown first and emphasised. */
+const NORMAL_NEXT: Partial<Record<WorkOrderStatus, WorkOrderStatus>> = {
+  CHECKED_IN: "DIAGNOSING",
+  DIAGNOSING: "IN_PROGRESS",
+  AWAITING_PARTS: "IN_PROGRESS",
+  IN_PROGRESS: "QUALITY_CHECK",
+  QUALITY_CHECK: "COMPLETED",
+};
+
+/** What a button does, by meaning: next step, done/forward, going back or pausing, stopping. */
+export type ActionTone = "primary" | "success" | "warning" | "danger";
+
+export type StatusAction = { to: WorkOrderStatus; label: string; tone: ActionTone; normal: boolean };
+
+/** Button text and colour for a move, phrased as the action (not "→ Status"). */
+export function statusActionFor(from: WorkOrderStatus, to: WorkOrderStatus): Omit<StatusAction, "normal"> {
+  if (to === "CANCELLED") return { to, label: "Cancel job", tone: "danger" };
+  if (to === "COMPLETED") return { to, label: "Pass QC & invoice", tone: "success" };
+  if (to === "AWAITING_PARTS") return { to, label: "Waiting for parts", tone: "warning" };
+  if (to === "DIAGNOSING") return { to, label: "Start diagnosis", tone: "primary" };
+  if (to === "QUALITY_CHECK") return { to, label: "Send to quality check", tone: "primary" };
+  // To In progress: from diagnosis, back from parts, or back from a failed QC.
+  if (from === "AWAITING_PARTS") return { to, label: "Parts arrived — resume", tone: "primary" };
+  if (from === "QUALITY_CHECK") return { to, label: "Fail QC — back to repair", tone: "warning" };
+  return { to, label: "Start repair", tone: "primary" };
+}
+
+/**
+ * The buttons this user gets on a job, in order: the normal next step first, Cancel last.
+ * Same moves as `allowedNextStatuses()` — this only names, colours and orders them.
+ */
+export function statusActions(current: WorkOrderStatus, user: { role: Role; isAssignedMechanic: boolean }): StatusAction[] {
+  const rank = (to: WorkOrderStatus) => (to === NORMAL_NEXT[current] ? 0 : to === "CANCELLED" ? 2 : 1);
+  return allowedNextStatuses(current, user)
+    .map((to) => ({ ...statusActionFor(current, to), normal: to === NORMAL_NEXT[current] }))
+    .sort((a, b) => rank(a.to) - rank(b.to));
+}
+
+/** One line under the buttons: what happens next. Mechanics can't do the QC sign-off. */
+export function statusHint(status: WorkOrderStatus, role: Role): string | null {
+  switch (status) {
+    case "CHECKED_IN":
+      return "Next: start the diagnosis when a mechanic looks at the car.";
+    case "DIAGNOSING":
+      return "Next: start the repair, or mark it as waiting for parts.";
+    case "AWAITING_PARTS":
+      return "Paused: resume the repair when the parts arrive.";
+    case "IN_PROGRESS":
+      return "Next: send to quality check when the repair is done.";
+    case "QUALITY_CHECK":
+      return role === "MECHANIC"
+        ? "Waiting for an advisor's quality check."
+        : "Next: check the work — pass to issue the invoice, or fail to send it back.";
+    default:
+      return null;
+  }
+}
+
 /** Display helper: 7 → "WO-0007". */
 export function formatWorkOrderNumber(number: number): string {
   return `WO-${String(number).padStart(4, "0")}`;
