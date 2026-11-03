@@ -219,6 +219,12 @@ schema before calling the API. List search and paging live in the URL.
   - CHECKED_IN → DIAGNOSING; DIAGNOSING → AWAITING_PARTS / IN_PROGRESS; AWAITING_PARTS →
     IN_PROGRESS; IN_PROGRESS → AWAITING_PARTS / QUALITY_CHECK; QUALITY_CHECK → IN_PROGRESS
     (failed QC) / COMPLETED; any open status → CANCELLED.
+  - **On screen:** a 5-step progress bar (`StatusStepper`; Awaiting parts = an amber pause on
+    In progress, Cancelled = greyed out) and buttons named for the action — `statusActions()`
+    / `statusHint()` next to `allowedNextStatuses()`: Start diagnosis · Start repair ·
+    Waiting for parts · Parts arrived — resume · Send to quality check · Pass QC & invoice
+    (green) · Fail QC — back to repair (amber) · Cancel job (red), normal next step first,
+    Cancel last, plus a one-line "Next: …" hint.
   - Advisors/admins can make any move. A mechanic can only change jobs **assigned to them**
     (notes, labour, parts, status) and never makes the COMPLETED (QC sign-off) or CANCELLED
     moves. Other mechanics can view. Customers see status on their vehicle page only.
@@ -256,6 +262,10 @@ schema before calling the API. List search and paging live in the URL.
   - Customers see only their own (others → 404); mechanics none (403). For customers,
     "upcoming" means still in the future — a request whose time passed unconfirmed shows
     under Past as "Not confirmed"; staff still see it under Upcoming to resolve it.
+  - **Staff list:** Requests / Today / Upcoming / Past are presets; the **All** tab (newest
+    first) has filters — status tick boxes (`?status=A,B`), Booked by (`?bookedBy=customer|
+    staff`: staff = made by a staff login, i.e. a phone booking) and the scheduled month/year.
+    The filters only narrow a tab (AND); leaving All drops them.
   - Every change is a conditional update + audit entry; the cancel reason lives in the audit
     log.
   - **Emails:** when staff confirm, book (phone), move or cancel one, the customer is emailed
@@ -384,6 +394,13 @@ since scope is intentionally tight against the Nov deadline.
 ## Conventions
 
 - TypeScript strict mode in both apps.
+- **Button colours** (`Button` / `LinkButton` variants in `frontend/components/ui.tsx`, by
+  meaning): blue `primary` = the normal next step; green `success` = forward/done (Confirm,
+  Check in, Pass QC, Mark as paid, reminder Done); amber `warning` = going back or pausing
+  (Waiting for parts, Fail QC, Reschedule); red `dangerOutline` on list rows and pages
+  (Cancel, No-show, Dismiss) with solid `danger` only for the confirm button in a dialog;
+  grey `secondary` = Edit/Back/Download. Named actions use the shared `ACTION_VARIANT` map.
+  Every button keeps its text.
 - Prefer explicit types over `any`; shared DTOs/interfaces for anything crossing the
   frontend/backend boundary live in `packages/types`, not duplicated in both apps.
 - Request validation: backend controllers validate bodies with the shared zod schemas
@@ -435,12 +452,11 @@ the build has followed so far — keep them.
 
 **Where things stand (Nov 3, 2026).** Steps 1–5 are merged: schema + auth, customers /
 vehicles / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments,
-reminder engine (PR #16), reports (PR #21: `/app/reports` + the admin dashboard cards).
-Step 7, list filters + sorting (`docs/step-7-plan.md`, Jira CLOUDAPPG3-149…153), is on
-`feat/list-filters`: month/year filters on invoices and work-order history (staff), inventory
-sorting. **Next:**
-`docs/backlog.md` (Jira CLOUDAPPG3-129…140) — appointment filters (131/132) are the next
-small item; code freeze is Nov 10.
+reminder engine (PR #16), reports (PR #21), list filters + sorting (PR #22). Step 8 —
+backlog #1–3: work-order progress bar + action-named buttons, button colours by meaning,
+appointment filters (Jira CLOUDAPPG3-129…132) — is on `feat/status-buttons`. **Left in the
+backlog:** #4 visit history (133–135) and #5 price list (136–140) — likely "future work" in
+the final document; code freeze is Nov 10, demo account deploy Nov 8–10.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -595,10 +611,10 @@ Values that must agree **across files**:
 ## Parked ideas (nice-to-have, not scheduled)
 
 Agreed as good ideas, deliberately not built so the MVP stays on schedule. Don't build
-without the team deciding first. **`docs/backlog.md`** has the detailed build notes and a
-suggested order for: clearer work-order status steps + action-named buttons, button colours
-by meaning (green forward / red stop), appointment filters, customer visit history (staff
-and customer side), and fixed prices for routine services (extends the price list below).
+without the team deciding first. **`docs/backlog.md`** has the detailed build notes for what's
+left: customer visit history (staff and customer side) and fixed prices for routine services
+(extends the price list below). Items 1–3 there (status buttons, button colours, appointment
+filters) are built.
 
 - **Labour price list (hybrid pricing).** Today labour lines are free-typed amounts entered
   by staff or the assigned mechanic (common in small garages, but anyone can type any
