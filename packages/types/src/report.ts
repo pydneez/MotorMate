@@ -126,15 +126,19 @@ export type OpenWorkOrderStatus = Exclude<WorkOrderStatus, "COMPLETED" | "CANCEL
 
 export type ReportPartRow = { id: string; sku: string; name: string; quantity: number; revenue: number };
 
+/** Invoiced amounts for a period — all of GET /reports/revenue, and part of the summary. */
+export type RevenueTotals = {
+  invoiceCount: number;
+  total: number;
+  paid: { count: number; total: number };
+  unpaid: { count: number; total: number };
+};
+
 export type ReportSummary = {
   range: ReportQuery & { days: number; bucket: ReportBucket };
-  revenue: {
-    invoiceCount: number;
+  revenue: RevenueTotals & {
     subtotal: number;
     vat: number;
-    total: number;
-    paid: { count: number; total: number };
-    unpaid: { count: number; total: number };
     labour: number;
     parts: number;
     series: { start: string; total: number; count: number }[];
@@ -159,6 +163,11 @@ export type ReportSummary = {
     cancelled: number;
     noShowRate: number | null;
     newCustomers: number;
+    /** Customers with a job completed in the period. */
+    servedCustomers: number;
+    /** Of those, customers who had at least one earlier completed job too. */
+    repeatCustomers: number;
+    repeatRate: number | null;
     remindersSent: number;
   };
 };
