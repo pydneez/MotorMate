@@ -9,6 +9,7 @@ import {
 } from "@motormate/types";
 import { Card, PageHeader } from "@/components/ui";
 import { WorkOrderStatusBadge } from "@/components/work-orders/status-badge";
+import { StatusStepper } from "@/components/work-orders/status-stepper";
 import { MechanicAssign, StatusActions } from "@/components/work-orders/work-order-actions";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
 import { LabourSection, NotesSection, PartsSection, RecommendationsSection } from "@/components/work-orders/work-order-sections";
@@ -54,6 +55,9 @@ export default async function WorkOrderPage({ params }: { params: { id: string }
         }
         actions={<StatusActions workOrder={workOrder} user={user} />}
       />
+      <div className="mb-4">
+        <StatusStepper status={workOrder.status} />
+      </div>
 
       {!closed && !canEdit && (
         <p className="mb-4 rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-600">

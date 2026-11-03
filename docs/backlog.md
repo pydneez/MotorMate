@@ -135,8 +135,15 @@ yes, "from ฿X, final price after inspection").
 
 ### Suggested order (after Step 6 reports)
 
-1. **1 + 2** together — small, makes the demo clearer, no schema change.
-2. **3** — small, staff-only.
+**Status (Nov 3, 2026):** 1, 2 and 3 are built (Step 8, `feat/status-buttons`). Changes from
+the notes above:
+- Appointment filters live on a new **All** tab; the other tabs stay as presets.
+- The date filter is the month/year picker used on the other lists.
+- Cancel / No-show / Dismiss on list rows are **red outline**; only the dialog's confirm
+  button is solid red.
+
+1. ~~**1 + 2** together~~ — done.
+2. ~~**3**~~ — done.
 3. **4** — together with "customer portal views" (the last stretch item).
 4. **5** — the largest (schema, booking, check-in, work order, admin page); only if there's
    time before Nov 1, otherwise it's a strong "future work" item for the final document.

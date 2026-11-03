@@ -3,44 +3,40 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
-  allowedNextStatuses,
   ChangeWorkOrderStatusSchema,
-  WORK_ORDER_STATUS_LABEL,
+  statusActions,
+  statusHint,
   type AuthUser,
   type MechanicOption,
   type WorkOrderDetail,
   type WorkOrderStatus,
 } from "@motormate/types";
 import { Modal } from "@/components/data/modal";
-import { Alert, Button, Field } from "@/components/ui";
+import { Alert, Button, Field, type ButtonVariant } from "@/components/ui";
 import { formValues, useApi, useFormSubmit } from "@/lib/client";
 import { formatTHB } from "@/lib/format";
 
-/** Button text for a move, phrased from where the job is now. */
-function moveLabel(from: WorkOrderStatus, to: WorkOrderStatus): string {
-  if (to === "CANCELLED") return "Cancel job";
-  if (to === "COMPLETED") return "Complete & invoice";
-  if (from === "QUALITY_CHECK" && to === "IN_PROGRESS") return "Send back to In progress";
-  return `→ ${WORK_ORDER_STATUS_LABEL[to]}`;
-}
-
-const DIALOG: Partial<Record<WorkOrderStatus, { title: string; submit: string; placeholder: string }>> = {
-  CANCELLED: { title: "Cancel this job?", submit: "Cancel job", placeholder: "e.g. Customer declined the quote" },
-  IN_PROGRESS: { title: "Send back to In progress", submit: "Send back", placeholder: "e.g. Still squeals at low speed" },
-  COMPLETED: { title: "Complete & issue invoice?", submit: "Complete & invoice", placeholder: "e.g. Road-tested, no noise" },
+const DIALOG: Partial<Record<WorkOrderStatus, { title: string; submit: string; placeholder: string; variant: ButtonVariant }>> = {
+  CANCELLED: { title: "Cancel this job?", submit: "Cancel job", placeholder: "e.g. Customer declined the quote", variant: "danger" },
+  IN_PROGRESS: { title: "Fail quality check?", submit: "Back to repair", placeholder: "e.g. Still squeals at low speed", variant: "warning" },
+  COMPLETED: { title: "Pass QC & issue the invoice?", submit: "Pass QC & invoice", placeholder: "e.g. Road-tested, no noise", variant: "success" },
 };
 
 /**
- * Status buttons for the moves this user may make (same rules as the API). Cancelling,
- * completing and sending a job back from quality check open a dialog with an optional note;
- * completing then opens the new invoice.
+ * Status buttons for the moves this user may make (same rules as the API), named for what
+ * they do, normal next step first and Cancel last (`statusActions()` in packages/types),
+ * with a one-line hint. Cancelling, passing and failing QC open a dialog with a note;
+ * passing QC then opens the new invoice.
  */
 export function StatusActions({ workOrder, user }: { workOrder: WorkOrderDetail; user: AuthUser }) {
   const router = useRouter();
   const callApi = useApi();
   const { error, submitting, submit, fieldErrors, validate } = useFormSubmit();
   const [confirming, setConfirming] = useState<WorkOrderStatus | null>(null);
-  const next = allowedNextStatuses(workOrder.status, { role: user.role, isAssignedMechanic: workOrder.mechanic?.id === user.id });
+  const isAssignedMechanic = workOrder.mechanic?.id === user.id;
+  const actions = statusActions(workOrder.status, { role: user.role, isAssignedMechanic });
+  // Mechanics only get the hint on their own jobs; others can't act on it.
+  const hint = user.role !== "MECHANIC" || isAssignedMechanic ? statusHint(workOrder.status, user.role) : null;
 
   async function move(status: WorkOrderStatus, note?: string) {
     const body = validate(ChangeWorkOrderStatusSchema, { status, note: note ?? "" });
@@ -52,7 +48,7 @@ export function StatusActions({ workOrder, user }: { workOrder: WorkOrderDetail;
     router.refresh();
   }
 
-  if (next.length === 0) return null;
+  if (actions.length === 0 && !hint) return null;
   const needsDialog = (to: WorkOrderStatus) =>
     to === "CANCELLED" || to === "COMPLETED" || (workOrder.status === "QUALITY_CHECK" && to === "IN_PROGRESS");
   const dialog = confirming ? DIALOG[confirming] : undefined;
@@ -60,18 +56,22 @@ export function StatusActions({ workOrder, user }: { workOrder: WorkOrderDetail;
 
   return (
     <div className="flex flex-col items-end gap-2">
-      <div className="flex flex-wrap justify-end gap-2">
-        {next.map((to) => (
-          <Button
-            key={to}
-            variant={to === "CANCELLED" ? "danger" : to === "IN_PROGRESS" && workOrder.status === "QUALITY_CHECK" ? "secondary" : "primary"}
-            loading={submitting && confirming === null}
-            onClick={() => (needsDialog(to) ? setConfirming(to) : move(to))}
-          >
-            {moveLabel(workOrder.status, to)}
-          </Button>
-        ))}
-      </div>
+      {actions.length > 0 && (
+        <div className="flex flex-wrap justify-end gap-2">
+          {actions.map(({ to, label, tone }) => (
+            <Button
+              key={to}
+              // Cancel is the outline red on the page; the dialog's confirm is solid red.
+              variant={tone === "danger" ? "dangerOutline" : tone}
+              loading={submitting && confirming === null}
+              onClick={() => (needsDialog(to) ? setConfirming(to) : move(to))}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
+      {hint && <p className="text-right text-xs text-slate-500">{hint}</p>}
       {error && !confirming && <Alert>{error}</Alert>}
 
       <Modal open={confirming !== null} title={dialog?.title ?? ""} onClose={() => setConfirming(null)}>
@@ -105,7 +105,7 @@ export function StatusActions({ workOrder, user }: { workOrder: WorkOrderDetail;
             <Button type="button" variant="secondary" onClick={() => setConfirming(null)}>
               Back
             </Button>
-            <Button type="submit" variant={confirming === "CANCELLED" ? "danger" : "primary"} loading={submitting}>
+            <Button type="submit" variant={dialog?.variant ?? "primary"} loading={submitting}>
               {dialog?.submit}
             </Button>
           </div>

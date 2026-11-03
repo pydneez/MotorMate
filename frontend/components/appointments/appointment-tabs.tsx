@@ -2,8 +2,13 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { AppointmentCounts, AppointmentView } from "@motormate/types";
+import { APPOINTMENT_FILTER_PARAMS } from "./appointment-filters";
 
-/** Requests / Today / Upcoming / Past, written to the URL like the search box. */
+/**
+ * Requests / Today / Upcoming / Past are quick presets; All is every appointment with the
+ * filter bar. Written to the URL like the search box; leaving All drops its filters so no
+ * hidden filter narrows a preset.
+ */
 export function AppointmentTabs({ view, counts }: { view: AppointmentView; counts: AppointmentCounts }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -13,12 +18,14 @@ export function AppointmentTabs({ view, counts }: { view: AppointmentView; count
     { value: "today", label: "Today", count: counts.today },
     { value: "upcoming", label: "Upcoming" },
     { value: "past", label: "Past" },
+    { value: "all", label: "All" },
   ];
 
   function select(value: AppointmentView) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("view", value);
     params.delete("page");
+    if (value !== "all") for (const key of APPOINTMENT_FILTER_PARAMS) params.delete(key);
     router.replace(`${pathname}?${params.toString()}`);
   }
 

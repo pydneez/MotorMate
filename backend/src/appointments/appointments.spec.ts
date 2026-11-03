@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, NotFoundException } from "@nestjs/common";
 import {
   appointmentActions,
+  AppointmentListQuerySchema,
   appointmentSlots,
   bangkokDateTime,
   bangkokParts,
@@ -175,6 +176,43 @@ describe("AppointmentsService", () => {
     expect(staff).toEqual(expect.objectContaining({ status: { in: ["REQUESTED", "CONFIRMED"] } }));
     expect(staff.scheduledAt).toBeUndefined();
     expect(minePast.OR).toEqual([{ status: { notIn: ["REQUESTED", "CONFIRMED"] } }, { scheduledAt: { lt: NOW } }]);
+  });
+
+  it("narrows any tab by status, Bangkok scheduled day and who booked it", async () => {
+    const { prisma, appointments } = setup();
+    prisma.user.findMany.mockResolvedValue([{ id: "advisor-1" }, { id: "admin-1" }]);
+    await appointments.list(advisor, {
+      view: "all",
+      status: ["COMPLETED", "NO_SHOW"],
+      from: "2026-10-01",
+      to: "2026-10-31",
+      bookedBy: "staff",
+      page: 1,
+      pageSize: 20,
+    });
+    await appointments.list(advisor, { view: "upcoming", bookedBy: "customer", page: 1, pageSize: 20 });
+
+    const [all, upcoming] = prisma.appointment.findMany.mock.calls.map((call) => call[0]);
+    expect(all.orderBy).toEqual({ scheduledAt: "desc" });
+    expect(all.where.AND).toEqual([
+      { status: { in: ["COMPLETED", "NO_SHOW"] } },
+      { scheduledAt: { gte: new Date("2026-09-30T17:00:00.000Z"), lt: new Date("2026-10-31T17:00:00.000Z") } },
+      { createdById: { in: ["advisor-1", "admin-1"] } },
+    ]);
+    // The tab's own status rule stays; the filter only narrows it.
+    expect(upcoming.where.status).toEqual({ in: ["REQUESTED", "CONFIRMED"] });
+    expect(upcoming.where.AND).toEqual([{ createdById: { notIn: ["advisor-1", "admin-1"] } }]);
+    expect(prisma.user.findMany).toHaveBeenCalledWith({ where: { role: { not: "CUSTOMER" } }, select: { id: true } });
+  });
+
+  it("checks the list filters (packages/types)", () => {
+    const parse = (query: Record<string, string>) => AppointmentListQuerySchema.safeParse(query);
+    expect(parse({ status: "REQUESTED,NO_SHOW" }).data?.status).toEqual(["REQUESTED", "NO_SHOW"]);
+    expect(parse({ status: "" }).data?.status).toBeUndefined();
+    expect(parse({ status: "LATE" }).success).toBe(false);
+    expect(parse({ bookedBy: "phone" }).success).toBe(false);
+    expect(parse({ from: "2026-10-31", to: "2026-10-01" }).success).toBe(false);
+    expect(parse({ view: "all", bookedBy: "customer", from: "2026-10-01" }).success).toBe(true);
   });
 
   describe("emails to the customer", () => {

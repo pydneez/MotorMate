@@ -65,6 +65,16 @@ beforeAll(async () => {
   await job(other.id, "2026-10-31T16:30:00Z"); // 31 Oct 23:30 — inside
   await job(other.id, "2026-10-31T17:30:00Z"); // 1 Nov 00:30 — after
 
+  // Appointments: Jo booked one online (still requested) and one that became a no-show;
+  // staff booked one for Kim by phone, completed. All in October except the request.
+  const booking = (vehicle: { id: string; customerId: string }, at: string, status: string, createdById: string) =>
+    prisma.appointment.create({
+      data: { customerId: vehicle.customerId, vehicleId: vehicle.id, scheduledAt: new Date(at), reason: "Service", status: status as never, createdById },
+    });
+  await booking(mine, "2026-10-05T03:00:00Z", "NO_SHOW", users.customer.id);
+  await booking(other, "2026-10-31T10:30:00Z", "COMPLETED", users.advisor.id); // 31 Oct 17:30 Bangkok
+  await booking(mine, "2026-11-20T03:00:00Z", "REQUESTED", users.customer.id);
+
   const item = (sku: string, name: string, quantityOnHand: number, unitPrice: number, isActive = true) => ({
     sku, name, category: "Filters", quantityOnHand, unitCost: 50, unitPrice, reorderLevel: 1, isActive,
   });
@@ -116,6 +126,37 @@ describe("work order check-in date range", () => {
 
   it("rejects impossible dates", async () => {
     await get(tokens.advisor, "/work-orders?from=2026-13-01").expect(400);
+  });
+});
+
+describe("appointment filters", () => {
+  const statuses = (body: { items: { status: string }[] }) => body.items.map((row) => row.status);
+
+  it("lists everything on the All tab, newest first", async () => {
+    const { body } = await get(tokens.advisor, "/appointments?view=all").expect(200);
+    expect(statuses(body)).toEqual(["REQUESTED", "COMPLETED", "NO_SHOW"]);
+  });
+
+  it("filters by status, scheduled month and who booked it", async () => {
+    expect(statuses((await get(tokens.advisor, "/appointments?view=all&status=NO_SHOW,COMPLETED").expect(200)).body)).toEqual(["COMPLETED", "NO_SHOW"]);
+    expect(statuses((await get(tokens.advisor, "/appointments?view=all&from=2026-10-01&to=2026-10-31").expect(200)).body)).toEqual(["COMPLETED", "NO_SHOW"]);
+    expect(statuses((await get(tokens.advisor, "/appointments?view=all&bookedBy=staff").expect(200)).body)).toEqual(["COMPLETED"]);
+    expect(statuses((await get(tokens.advisor, "/appointments?view=all&bookedBy=customer").expect(200)).body)).toEqual(["REQUESTED", "NO_SHOW"]);
+  });
+
+  it("only narrows a tab, never widens it", async () => {
+    const { body } = await get(tokens.advisor, "/appointments?view=requests&status=COMPLETED").expect(200);
+    expect(body.items).toEqual([]);
+  });
+
+  it("keeps customers to their own appointments", async () => {
+    const { body } = await get(tokens.customer, "/appointments?view=all&bookedBy=staff").expect(200);
+    expect(body.items).toEqual([]);
+  });
+
+  it("rejects unknown statuses and sources", async () => {
+    await get(tokens.advisor, "/appointments?view=all&status=LATE").expect(400);
+    await get(tokens.advisor, "/appointments?view=all&bookedBy=phone").expect(400);
   });
 });
 

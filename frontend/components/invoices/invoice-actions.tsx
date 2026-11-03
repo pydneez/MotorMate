@@ -5,7 +5,7 @@ import { useState } from "react";
 import { CheckCircle2, FileDown, Printer } from "lucide-react";
 import { formatInvoiceNumber, type InvoiceDetail, type InvoicePdfLink } from "@motormate/types";
 import { Modal } from "@/components/data/modal";
-import { Alert, Button } from "@/components/ui";
+import { ACTION_VARIANT, Alert, Button } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 import { useApi, useFormSubmit } from "@/lib/client";
 import { formatTHB } from "@/lib/format";
@@ -57,7 +57,7 @@ export function InvoiceActions({ invoice, canMarkPaid }: { invoice: InvoiceDetai
         <Printer className="h-4 w-4" aria-hidden /> Print
       </Button>
       {canMarkPaid && invoice.status === "UNPAID" && (
-        <Button onClick={() => setConfirming(true)}>
+        <Button variant={ACTION_VARIANT.markPaid} onClick={() => setConfirming(true)}>
           <CheckCircle2 className="h-4 w-4" aria-hidden /> Mark as paid
         </Button>
       )}
@@ -77,7 +77,7 @@ export function InvoiceActions({ invoice, canMarkPaid }: { invoice: InvoiceDetai
             <Button type="button" variant="secondary" onClick={() => setConfirming(false)}>
               Back
             </Button>
-            <Button onClick={markPaid} loading={submitting}>
+            <Button variant={ACTION_VARIANT.markPaid} onClick={markPaid} loading={submitting}>
               Mark as paid
             </Button>
           </div>

@@ -22,6 +22,7 @@ import {
 } from "@motormate/types";
 import type { z } from "zod";
 import { writeAudit } from "../common/utils/audit";
+import { bangkokDayFilter } from "../common/utils/dates";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { appointmentEmail, type AppointmentEmailKind } from "../notifications/email-text";
 import { NotifierService } from "../notifications/notifier.service";
@@ -73,12 +74,14 @@ export class AppointmentsService {
           : { status: { notIn: UPCOMING } },
         order: "desc",
       },
+      all: { where: {}, order: "desc" },
     };
     const { where: viewWhere, order } = view[query.view ?? "upcoming"];
     const where: Prisma.AppointmentWhereInput = {
       ...this.scope(user),
       ...viewWhere,
-      AND: searchTokens(query.q).map((token) => {
+      // The filters narrow the tab (AND), so they never widen what a tab shows.
+      AND: [...(await this.filters(query)), ...searchTokens(query.q).map((token) => {
         const or: Prisma.AppointmentWhereInput[] = [
           { customer: { firstName: { contains: token, mode: "insensitive" } } },
           { customer: { lastName: { contains: token, mode: "insensitive" } } },
@@ -89,13 +92,30 @@ export class AppointmentsService {
         const plate = normalizePlate(token);
         if (plate) or.push({ vehicle: { plateNormalized: { contains: plate } } });
         return { OR: or };
-      }),
+      })],
     };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.appointment.findMany({ where, include: appointmentInclude, orderBy: { scheduledAt: order }, ...pageArgs(query) }),
       this.prisma.appointment.count({ where }),
     ]);
     return paginated(rows.map(toAppointmentSummary), total, query);
+  }
+
+  /**
+   * Status, scheduled day (Bangkok) and who booked it. "Staff" = made by a staff login (a
+   * phone booking); "customer" = everything else. Staff logins are few, so that's one
+   * small lookup rather than a join.
+   */
+  private async filters(query: AppointmentListQuery): Promise<Prisma.AppointmentWhereInput[]> {
+    const filters: Prisma.AppointmentWhereInput[] = [];
+    if (query.status) filters.push({ status: { in: query.status } });
+    if (query.from || query.to) filters.push({ scheduledAt: bangkokDayFilter(query.from, query.to) });
+    if (query.bookedBy) {
+      const staff = await this.prisma.user.findMany({ where: { role: { not: "CUSTOMER" } }, select: { id: true } });
+      const staffIds = staff.map((row) => row.id);
+      filters.push({ createdById: query.bookedBy === "staff" ? { in: staffIds } : { notIn: staffIds } });
+    }
+    return filters;
   }
 
   async counts(): Promise<AppointmentCounts> {
