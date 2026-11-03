@@ -114,11 +114,6 @@ export function checkDateRange({ from, to }: { from?: string; to?: string }, ctx
   }
 }
 
-/** Just the optional from/to pair — the pages check URL dates with it before calling the API. */
-export const DateRangeQuerySchema = z.object(dateRangeFields).superRefine(checkDateRange);
-
-export type DateRangeQuery = z.output<typeof DateRangeQuerySchema>;
-
 // ── Text fields ───────────────────────────────────────────────────────────────
 
 /** Letters in any script; Thai vowels and tone marks are combining marks (\p{M}). */
