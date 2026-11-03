@@ -12,6 +12,7 @@ import {
   type Paginated,
 } from "@motormate/types";
 import { writeAudit } from "../common/utils/audit";
+import { bangkokDayFilter } from "../common/utils/dates";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { PrismaService } from "../prisma/prisma.service";
 import { invoiceDetailInclude, invoiceSummaryInclude, toInvoiceDetail, toInvoiceSummary } from "./invoice.mapper";
@@ -28,6 +29,7 @@ export class InvoicesService {
     const where: Prisma.InvoiceWhereInput = {
       ...this.scope(user),
       ...(query.status ? { status: query.status } : {}),
+      ...(query.from || query.to ? { issuedAt: bangkokDayFilter(query.from, query.to) } : {}),
       AND: searchTokens(query.q).map((token) => {
         const or: Prisma.InvoiceWhereInput[] = [
           { workOrder: { vehicle: { customer: { firstName: { contains: token, mode: "insensitive" } } } } },
