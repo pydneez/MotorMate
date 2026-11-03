@@ -11,6 +11,7 @@
     "db:migrate": "pnpm --filter backend exec prisma migrate dev && npm run db:generate",
     "db:studio": "pnpm --filter backend exec prisma studio",
     "db:seed": "pnpm build:types && pnpm --filter backend exec prisma db seed",
+    "db:seed:demo": "pnpm build:types && pnpm --filter backend exec ts-node prisma/seed-demo.ts",
     "lint": "pnpm -r lint",
     "test": "pnpm build:types && pnpm -r test",
     "typecheck": "pnpm build:types && pnpm -r typecheck",

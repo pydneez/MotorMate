@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Quick end-to-end check of a deployed environment through its public HTTPS address:
 # the API health route, the login page, sign-in with the seeded admin, an
-# authenticated API call, the invoice PDF link, and the daily jobs (Lambda → API → SNS).
+# authenticated API call, reports + CSV, the list filters and visits, the invoice PDF
+# link, and the daily jobs (Lambda → API → SNS).
 #
 #   bash infra/scripts/smoke.sh
 
@@ -30,6 +31,26 @@ token="$(curl -s -X POST "$URL/v1/auth/login" -H 'Content-Type: application/json
 if [ -n "$token" ]; then info "✔ POST /v1/auth/login (seeded admin)"; else info "✖ POST /v1/auth/login returned no token"; failed=1; fi
 check "GET /v1/customers with the token" 200 "$URL/v1/customers" -H "Authorization: Bearer $token"
 check "GET /v1/customers without a token" 401 "$URL/v1/customers"
+
+# Reports, list filters and visits (all read-only).
+auth=(-H "Authorization: Bearer $token")
+from="$(date -u +%Y-%m-01)"; to="$(date -u +%F)"
+check "GET /v1/reports/summary (admin)" 200 "$URL/v1/reports/summary?from=$from&to=$to" "${auth[@]}"
+check "GET /v1/reports/revenue (admin)" 200 "$URL/v1/reports/revenue?from=$from&to=$to" "${auth[@]}"
+csv_type="$(curl -s -o /dev/null -w '%{content_type}' --max-time 20 "$URL/v1/reports/export/invoices?from=$from&to=$to" "${auth[@]}" || true)"
+case "$csv_type" in
+  text/csv*) info "✔ GET /v1/reports/export/invoices → $csv_type" ;;
+  *) info "✖ CSV export: content type \"$csv_type\""; failed=1 ;;
+esac
+advisor_token="$(curl -s -X POST "$URL/v1/auth/login" -H 'Content-Type: application/json' \
+  -d '{"email":"advisor@motormate.example","password":"password123"}' \
+  --max-time 20 | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p' || true)"
+check "GET /v1/reports/summary as advisor (admin only)" 403 "$URL/v1/reports/summary?from=$from&to=$to" -H "Authorization: Bearer $advisor_token"
+check "GET /v1/appointments?view=all&status=… (filters)" 200 "$URL/v1/appointments?view=all&status=CONFIRMED,REQUESTED&bookedBy=customer" "${auth[@]}"
+check "GET /v1/inventory?sort=quantity (sorting)" 200 "$URL/v1/inventory?sort=quantity&dir=asc" "${auth[@]}"
+check "GET /v1/invoices?from=&to= (date range)" 200 "$URL/v1/invoices?from=$from&to=$to" "${auth[@]}"
+customer_id="$(curl -s --max-time 20 "$URL/v1/customers?pageSize=1" "${auth[@]}" | sed -n 's/^{"items":\[{"id":"\([^"]*\)".*/\1/p' || true)"
+check "GET /v1/customers/:id/visits" 200 "$URL/v1/customers/$customer_id/visits" "${auth[@]}"
 
 # Invoice PDF: the API returns a presigned S3 link; fetching it must give a real PDF.
 invoice_id="$(curl -s --max-time 20 "$URL/v1/invoices?pageSize=1" -H "Authorization: Bearer $token" \

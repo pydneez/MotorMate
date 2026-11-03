@@ -424,8 +424,11 @@ since scope is intentionally tight against the Nov deadline.
     `chore`, or `feat!`/`fix!` with a `BREAKING CHANGE:` footer if it breaks an API).
   - Optional body after a blank line: bullet points for what changed and why.
 - Branches: `type/short-description`, e.g. `feat/schema-and-auth`, `fix/login-redirect`.
-- Tests: Jest for unit tests in both apps, Playwright for end-to-end. New MVP-list
-  features should land with at least one test; stretch features can follow up.
+- Tests: Jest for unit tests in both apps; API + real-Postgres integration tests
+  (`backend/test`); `infra/scripts/smoke.sh` against a deployed environment. **End-to-end
+  browser tests** are a separate team task (CLOUDAPPG3-161): Robot Framework or Playwright,
+  to be confirmed with the professor — scenarios and logins in `docs/e2e-handoff.md`. New
+  MVP-list features should land with at least one test; stretch features can follow up.
 
 ## Working agreement with Claude (how each build step runs)
 
@@ -459,11 +462,12 @@ the build has followed so far — keep them.
 **Where things stand (Nov 4, 2026).** Merged: Steps 1–5 (schema + auth, customers / vehicles
 / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments, reminder
 engine), reports (PR #21), list filters + sorting (PR #22), status buttons / colours /
-appointment filters (PR #23). Step 9 — the Visits list on the staff customer page (Jira
-CLOUDAPPG3-133/134) — is on `feat/visit-history`; the customer-side "My visits" (135) was
-dropped (invoices + vehicle history cover it). **Feature work is done:** the price list (#5,
-136–140) is "future work" in the final document. Next: hardening + the final document
-(Nov 6–7), demo account deploy (Nov 8–10), code freeze Nov 10.
+appointment filters (PR #23), customer Visits list (PR #24; the customer-side "My visits",
+135, was dropped — invoices + vehicle history cover it). **Feature work is done:** the price
+list (#5, 136–140) is "future work" in the final document. Step 10 — demo readiness (demo
+seed, wider smoke test, end-to-end hand-off; Jira 158–161) — is on `chore/demo-readiness`.
+Next: the dev-account rehearsal (160), the final document (Nov 6–7), demo account deploy
+(Nov 8–10, with `seed.sh --demo`), code freeze Nov 10.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -523,6 +527,7 @@ pnpm install                  # install all workspace deps
 npm run db:migrate             # apply schema to local DB (`prisma migrate dev`), then `npm run db:generate`
 npm run db:generate            # regenerate the Prisma client — Prisma 7's migrate no longer does it
 npm run db:seed                # populate sample data — alias for `pnpm --filter backend exec prisma db seed`
+npm run db:seed:demo           # add ~6 months of demo history on top (runs once)
 npm run dev:backend            # build packages/types, then run backend (NestJS) on :8080/v1
 npm run dev:frontend           # build packages/types, then run frontend (Next.js) on :3000
 npm run test                   # build packages/types, then Jest unit tests in every package
@@ -549,6 +554,16 @@ pnpm lint                      # ESLint: backend (eslint.config.mjs, ESLint 9) +
 
 Seeded logins (password `password123`): `admin@`, `advisor@`, `mechanic@motormate.example`,
 customer `jordan.lee@example.com`.
+
+**Demo data** (`backend/prisma/seed-demo.ts`, `npm run db:seed:demo`; on AWS
+`bash infra/scripts/seed.sh --demo`): ~6 months of history on top of the seed — 12
+customers ([demo] in their notes; `ploy.s@` / `anan.r@example.com` have logins), 15
+vehicles, 45 completed jobs with invoices (most paid), one open job per status, a second
+mechanic (`mechanic2@`), stock purchases + parts used as movements, recommendations in every
+reminder state, appointments in every status. Dated relative to today, seeded random (same
+every run), runs once (skips if demo customers exist), sends nothing.
+`backend/test/seed-demo.int-spec.ts` checks it keeps the app's rules (invoice totals, stock
+= movements, one open job per vehicle, mileage up, shop-hour slots).
 
 `prisma migrate dev` refuses to run in non-interactive shells (e.g. Claude Code). To add
 a migration there: write the SQL with `prisma migrate diff --from-config-datasource
