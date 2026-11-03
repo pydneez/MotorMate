@@ -38,7 +38,8 @@ export function WorkOrderFilters({ mechanics, isMechanic }: { mechanics: Mechani
             key={tab.value}
             role="tab"
             aria-selected={status === tab.value}
-            onClick={() => update({ status: tab.value === "open" ? null : tab.value })}
+            // Open has no month filter, so don't carry a hidden one over to it.
+            onClick={() => update(tab.value === "open" ? { status: null, year: null, month: null } : { status: tab.value })}
             className={`rounded px-3 py-1.5 text-sm font-medium ${
               status === tab.value ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"
             }`}

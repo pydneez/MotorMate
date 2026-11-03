@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { formatInvoiceNumber, formatWorkOrderNumber, type InvoiceSummary, type Paginated } from "@motormate/types";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
-import { DateRangeFilter } from "@/components/data/date-range-filter";
+import { MonthYearFilter } from "@/components/data/month-year-filter";
 import { Pagination } from "@/components/data/pagination";
 import { SearchBox } from "@/components/data/search-box";
 import { Alert, Card, EmptyState, PageHeader } from "@/components/ui";
-import { readDateRange } from "@/lib/date-range";
+import { readMonthYear } from "@/lib/date-range";
 import { formatDate, formatTHB } from "@/lib/format";
 import { queryString, requireSession, serverGet } from "@/lib/server";
 
@@ -25,7 +25,10 @@ export default async function InvoicesPage({ searchParams }: Props) {
   const { user } = await requireSession();
   const isCustomer = user.role === "CUSTOMER";
   const status = searchParams.status === "UNPAID" || searchParams.status === "PAID" ? searchParams.status : undefined;
-  const { from, to, error: rangeError } = isCustomer ? { from: undefined, to: undefined, error: null } : readDateRange(searchParams);
+  const period: ReturnType<typeof readMonthYear> = isCustomer ? { error: null } : readMonthYear(searchParams);
+  const { from, to, error: rangeError } = period;
+  // Kept by the Paid/Unpaid tabs.
+  const periodParams = { year: period.year?.toString(), month: period.month?.toString() };
   const data = await serverGet<Paginated<InvoiceSummary>>(
     `/invoices${queryString({ q: searchParams.q, status, from, to, page: searchParams.page })}`,
   );
@@ -41,7 +44,7 @@ export default async function InvoicesPage({ searchParams }: Props) {
               {TABS.map((tab) => (
                 <Link
                   key={tab.label}
-                  href={`/app/invoices${queryString({ q, status: tab.value, from, to })}`}
+                  href={`/app/invoices${queryString({ q, status: tab.value, ...periodParams })}`}
                   aria-current={status === tab.value ? "page" : undefined}
                   className={`rounded px-3 py-1.5 text-sm font-medium ${
                     status === tab.value ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"
@@ -53,7 +56,7 @@ export default async function InvoicesPage({ searchParams }: Props) {
             </div>
             <SearchBox placeholder="Search INV/WO number, plate, car or customer…" />
           </div>
-          <DateRangeFilter label="Issued" range={{ from, to }} />
+          <MonthYearFilter label="Issued" value={period} />
           {rangeError && <Alert tone="warning">{rangeError}</Alert>}
         </div>
       )}
@@ -65,7 +68,7 @@ export default async function InvoicesPage({ searchParams }: Props) {
               {isCustomer
                 ? "Invoices appear here after each completed visit."
                 : from || to
-                  ? "Try another period, or All time."
+                  ? "Try another month, or All years."
                   : "Invoices are issued when a work order is completed."}
             </EmptyState>
           </div>
