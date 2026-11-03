@@ -11,3 +11,4 @@ export * from "./shop";
 export * from "./appointment";
 export * from "./reminder";
 export * from "./inventory";
+export * from "./report";
