@@ -163,8 +163,15 @@ Patterns the existing modules follow (copy them for new ones):
     No length limit on lists (reports keep 12 months).
   - **Sorting** happens in the API (lists are paged): a fixed `sort` enum + `dir`, with
     tie-breakers so paging is stable (inventory: `listOrder()`). Pages use `SortHeader` (and
-    `SortSelect` on phones) from `frontend/components/data`, and `DateRangeFilter` +
-    `readDateRange()` for dates — invalid URL values are dropped with a message, never a 400.
+    `SortSelect` on phones) from `frontend/components/data`.
+  - **On screen, lists filter by month and year**, not free dates: `MonthYearFilter` (Year:
+    All years / this year back to 2022; Month: Whole year / Jan–Dec; "This month" / "Last
+    month" shortcuts) writes `?year=&month=`, and `readMonthYear()` (`frontend/lib/date-range.ts`)
+    turns them into the API's `from`/`to` — invalid values are dropped with a message, never
+    a 400. Work orders show it on the Completed / Cancelled tabs only (labelled "Checked in").
+    Reports keep a range, picked as whole months (From [month][year] To [month][year],
+    `monthSpan()`), next to the This month / Last month / Last 3 months / This year buttons;
+    the URL stays `?from=&to=`, so an exact-day link still works.
 - **Every write** that matters runs in `prisma.$transaction` together with `writeAudit(...)`.
 - **Customers are scoped in the service**, not just the guard: a customer requesting
   someone else's record gets **404**, never 403, so existence isn't revealed.
@@ -430,7 +437,8 @@ the build has followed so far — keep them.
 vehicles / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments,
 reminder engine (PR #16), reports (PR #21: `/app/reports` + the admin dashboard cards).
 Step 7, list filters + sorting (`docs/step-7-plan.md`, Jira CLOUDAPPG3-149…153), is on
-`feat/list-filters`: invoice and work-order date ranges (staff), inventory sorting. **Next:**
+`feat/list-filters`: month/year filters on invoices and work-order history (staff), inventory
+sorting. **Next:**
 `docs/backlog.md` (Jira CLOUDAPPG3-129…140) — appointment filters (131/132) are the next
 small item; code freeze is Nov 10.
 
