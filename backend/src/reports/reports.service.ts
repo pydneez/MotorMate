@@ -16,6 +16,7 @@ import {
   type ReportPartRow,
   type ReportQuery,
   type ReportSummary,
+  type RevenueTotals,
 } from "@motormate/types";
 import { PrismaService } from "../prisma/prisma.service";
 import { csvMoney, toCsv } from "./csv";
@@ -83,11 +84,9 @@ export class ReportsService {
     const bucket = reportBucket(range.from, range.to);
     const invoiced = this.invoiced(period);
 
-    const [all, paid, unpaid, labour, series, parts, jobs, cancelled, open, mechanics, stock, appointments, newCustomers, remindersSent] =
+    const [totals, labour, series, parts, jobs, cancelled, open, mechanics, stock, appointments, newCustomers, repeat, remindersSent] =
       await Promise.all([
-        this.prisma.invoice.aggregate({ where: invoiced, _count: { _all: true }, _sum: { subtotal: true, vatAmount: true, total: true } }),
-        this.prisma.invoice.aggregate({ where: { ...invoiced, status: "PAID" }, _count: { _all: true }, _sum: { total: true } }),
-        this.prisma.invoice.aggregate({ where: { ...invoiced, status: "UNPAID" }, _count: { _all: true }, _sum: { total: true } }),
+        this.revenueTotals(period),
         this.prisma.serviceItem.aggregate({ where: { workOrder: { invoice: { is: invoiced } } }, _sum: { laborCost: true } }),
         this.revenueSeries(period, bucket),
         this.partsUsed(period),
@@ -98,6 +97,7 @@ export class ReportsService {
         this.stock(),
         this.prisma.appointment.groupBy({ by: ["status"], where: { scheduledAt: period }, _count: { _all: true } }),
         this.prisma.customer.count({ where: { createdAt: period } }),
+        this.repeatCustomers(period),
         this.prisma.notificationLog.count({ where: { type: "SERVICE_REMINDER", status: "SENT", createdAt: period } }),
       ]);
 
@@ -110,12 +110,7 @@ export class ReportsService {
     return {
       range: { ...range, days: reportDayCount(range.from, range.to), bucket },
       revenue: {
-        invoiceCount: all._count._all,
-        subtotal: amount(all._sum.subtotal),
-        vat: amount(all._sum.vatAmount),
-        total: amount(all._sum.total),
-        paid: { count: paid._count._all, total: amount(paid._sum.total) },
-        unpaid: { count: unpaid._count._all, total: amount(unpaid._sum.total) },
+        ...totals,
         labour: amount(labour._sum.laborCost),
         parts: round2(parts.reduce((sum, part) => sum + part.revenue, 0)),
         series: fillSeries(reportBuckets(range.from, range.to, bucket), series),
@@ -135,9 +130,60 @@ export class ReportsService {
         cancelled: booked("CANCELLED"),
         noShowRate: noShowRate(booked("COMPLETED"), booked("CHECKED_IN"), booked("NO_SHOW")),
         newCustomers,
+        servedCustomers: repeat.served,
+        repeatCustomers: repeat.repeat,
+        repeatRate: repeat.served === 0 ? null : repeat.repeat / repeat.served,
         remindersSent,
       },
     };
+  }
+
+  /** Invoiced, paid and unpaid totals for the period — the dashboard's revenue card uses only this. */
+  private async revenueTotals(period: Period): Promise<RevenueTotals & { subtotal: number; vat: number }> {
+    const invoiced = this.invoiced(period);
+    const [all, paid, unpaid] = await Promise.all([
+      this.prisma.invoice.aggregate({ where: invoiced, _count: { _all: true }, _sum: { subtotal: true, vatAmount: true, total: true } }),
+      this.prisma.invoice.aggregate({ where: { ...invoiced, status: "PAID" }, _count: { _all: true }, _sum: { total: true } }),
+      this.prisma.invoice.aggregate({ where: { ...invoiced, status: "UNPAID" }, _count: { _all: true }, _sum: { total: true } }),
+    ]);
+    return {
+      invoiceCount: all._count._all,
+      subtotal: amount(all._sum.subtotal),
+      vat: amount(all._sum.vatAmount),
+      total: amount(all._sum.total),
+      paid: { count: paid._count._all, total: amount(paid._sum.total) },
+      unpaid: { count: unpaid._count._all, total: amount(unpaid._sum.total) },
+    };
+  }
+
+  async revenue(range: ReportQuery): Promise<RevenueTotals> {
+    const { invoiceCount, total, paid, unpaid } = await this.revenueTotals(reportPeriod(range));
+    return { invoiceCount, total, paid, unpaid };
+  }
+
+  /**
+   * Customers with a job completed in the period, and how many of them had at least two
+   * completed jobs by the end of it (a return visit). Goes by the vehicle's current owner.
+   */
+  private async repeatCustomers(period: Period): Promise<{ served: number; repeat: number }> {
+    const [row] = await this.prisma.$queryRaw<{ served: number; repeat: number }[]>`
+      WITH served AS (
+        SELECT DISTINCT v."customerId"
+        FROM "WorkOrder" w
+        JOIN "Vehicle" v ON v."id" = w."vehicleId"
+        WHERE w."status" = 'COMPLETED' AND w."completedAt" >= ${period.gte} AND w."completedAt" < ${period.lt}
+      ),
+      visits AS (
+        SELECT v."customerId", COUNT(*)::int AS "jobs"
+        FROM "WorkOrder" w
+        JOIN "Vehicle" v ON v."id" = w."vehicleId"
+        WHERE w."status" = 'COMPLETED' AND w."completedAt" < ${period.lt}
+          AND v."customerId" IN (SELECT "customerId" FROM served)
+        GROUP BY v."customerId"
+      )
+      SELECT (SELECT COUNT(*) FROM served)::int AS "served",
+             (SELECT COUNT(*) FROM visits WHERE "jobs" >= 2)::int AS "repeat"`;
+    return { served: Number(row?.served ?? 0), repeat: Number(row?.repeat ?? 0) };
   }
 
   private async revenueSeries(period: Period, bucket: ReportBucket) {

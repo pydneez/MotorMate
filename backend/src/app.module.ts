@@ -14,5 +14,6 @@ import { WorkOrdersModule } from "./work-orders/work-orders.module";
 import { ReportsModule } from "./reports/reports.module";
 
 @Module({
-  imports: [PrismaModule, AuthModule, HealthModule, UsersModule, CustomersModule, VehiclesModule, InventoryModule, WorkOrdersModule, InvoicesModule, AppointmentsModule, NotificationsModule, RemindersModule, ReportsModule],})
+  imports: [PrismaModule, AuthModule, HealthModule, UsersModule, CustomersModule, VehiclesModule, InventoryModule, WorkOrdersModule, InvoicesModule, AppointmentsModule, NotificationsModule, RemindersModule, ReportsModule],
+})
 export class AppModule {}

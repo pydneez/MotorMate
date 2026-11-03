@@ -1,6 +1,14 @@
 import { BadRequestException, Controller, Get, Header, Param, Query, Res } from "@nestjs/common";
 import type { Response } from "express";
-import { REPORT_EXPORTS, ReportQuerySchema, reportCsvFilename, type ReportExport, type ReportQuery, type ReportSummary } from "@motormate/types";
+import {
+  REPORT_EXPORTS,
+  ReportQuerySchema,
+  reportCsvFilename,
+  type ReportExport,
+  type ReportQuery,
+  type ReportSummary,
+  type RevenueTotals,
+} from "@motormate/types";
 import { Roles } from "../common/decorators/roles.decorator";
 import { ZodValidationPipe } from "../common/pipes/zod-validation.pipe";
 import { ReportsService } from "./reports.service";
@@ -13,6 +21,12 @@ export class ReportsController {
   @Get("summary")
   summary(@Query(new ZodValidationPipe(ReportQuerySchema)) query: ReportQuery): Promise<ReportSummary> {
     return this.reports.summary(query);
+  }
+
+  /** Just the invoiced / paid / unpaid totals — cheap enough for the dashboard card. */
+  @Get("revenue")
+  revenue(@Query(new ZodValidationPipe(ReportQuerySchema)) query: ReportQuery): Promise<RevenueTotals> {
+    return this.reports.revenue(query);
   }
 
   @Get("export/:kind")
