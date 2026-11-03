@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { formatWorkOrderNumber, type MechanicOption, type Paginated, type WorkOrderSummary } from "@motormate/types";
+import { MonthYearFilter } from "@/components/data/month-year-filter";
 import { Pagination } from "@/components/data/pagination";
 import { SearchBox } from "@/components/data/search-box";
-import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { Alert, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { WorkOrderStatusBadge } from "@/components/work-orders/status-badge";
 import { WorkOrderFilters } from "@/components/work-orders/work-order-filters";
+import { readMonthYear } from "@/lib/date-range";
 import { formatDate } from "@/lib/format";
 import { queryString, requireSession, serverGet } from "@/lib/server";
 
@@ -20,10 +22,14 @@ export default async function WorkOrdersPage({ searchParams }: Props) {
   const mechanicParam = typeof searchParams.mechanic === "string" ? searchParams.mechanic : undefined;
   const mechanic = isMechanic ? (mechanicParam === "all" ? undefined : "me") : mechanicParam;
   const status = typeof searchParams.status === "string" ? searchParams.status : "open";
+  // Month/year browsing is for history; open jobs are all current, so the Open tab has none.
+  const isHistory = status === "COMPLETED" || status === "CANCELLED";
+  const period: ReturnType<typeof readMonthYear> = isHistory ? readMonthYear(searchParams) : { error: null };
+  const { from, to, error: rangeError } = period;
 
   const [data, mechanics] = await Promise.all([
     serverGet<Paginated<WorkOrderSummary>>(
-      `/work-orders${queryString({ q: searchParams.q, status, mechanic, page: searchParams.page })}`,
+      `/work-orders${queryString({ q: searchParams.q, status, mechanic, from, to, page: searchParams.page })}`,
     ),
     isStaff ? serverGet<MechanicOption[]>("/work-orders/mechanics") : Promise.resolve([]),
   ]);
@@ -44,12 +50,22 @@ export default async function WorkOrdersPage({ searchParams }: Props) {
         <WorkOrderFilters mechanics={mechanics} isMechanic={isMechanic} />
         <SearchBox placeholder="Search WO number, plate, VIN or customer…" />
       </div>
+      {isHistory && (
+        <div className="mt-3 space-y-3">
+          <MonthYearFilter label="Checked in" value={period} />
+          {rangeError && <Alert tone="warning">{rangeError}</Alert>}
+        </div>
+      )}
 
       <Card className="mt-4 overflow-hidden">
         {data.items.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No work orders here">
-              {status === "open" && isMechanic && mechanic === "me" ? "Nothing is assigned to you right now." : "Try another tab or search."}
+            <EmptyState title={from || to ? "No work orders in this period" : "No work orders here"}>
+              {from || to
+                ? "Try another month, or All years."
+                : status === "open" && isMechanic && mechanic === "me"
+                  ? "Nothing is assigned to you right now."
+                  : "Try another tab or search."}
             </EmptyState>
           </div>
         ) : (

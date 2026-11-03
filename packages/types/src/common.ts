@@ -81,6 +81,39 @@ export const QueryBooleanSchema = z
   .optional()
   .transform((value) => (value === undefined ? undefined : value === "true"));
 
+// ── Calendar days ─────────────────────────────────────────────────────────────
+
+/** "2026-10-31" → its UTC-midnight timestamp; null unless it's a real yyyy-mm-dd date. */
+export function dayValue(day: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!match) return null;
+  const [year, month, date] = match.slice(1).map(Number);
+  const value = Date.UTC(year, month - 1, date);
+  const check = new Date(value);
+  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === date ? value : null;
+}
+
+/** A real calendar day, yyyy-mm-dd (Bangkok days in this app — the API converts). */
+export const DaySchema = z
+  .string({ required_error: "Choose a date" })
+  .refine((day) => dayValue(day) !== null, "Use a real date (yyyy-mm-dd)");
+
+/** Optional ?from=&to= on list endpoints; an empty value means "not set". */
+export const dateRangeFields = {
+  from: z.preprocess((value) => (value === "" ? undefined : value), DaySchema.optional()),
+  to: z.preprocess((value) => (value === "" ? undefined : value), DaySchema.optional()),
+};
+
+/** superRefine for a from/to pair: the end can't be before the start. */
+export function checkDateRange({ from, to }: { from?: string; to?: string }, ctx: z.RefinementCtx): void {
+  if (!from || !to) return;
+  const start = dayValue(from);
+  const end = dayValue(to);
+  if (start !== null && end !== null && end < start) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["to"], message: "The end date can't be before the start date" });
+  }
+}
+
 // ── Text fields ───────────────────────────────────────────────────────────────
 
 /** Letters in any script; Thai vowels and tone marks are combining marks (\p{M}). */

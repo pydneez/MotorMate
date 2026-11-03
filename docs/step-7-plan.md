@@ -1,8 +1,34 @@
 # Step 7 plan — list filters + sorting (and finishing Step 6)
 
-Status: **planned, not started.** Proposed Nov 3, 2026. Code freeze is Nov 10, so this is
-deliberately small (≈ 1–1.5 days) and only touches list pages. Confirm the open decisions
-with the team before building (CLAUDE.md working agreement).
+Status: **built** (Nov 3, 2026) on `feat/list-filters`. Decisions taken:
+1. invoice presets This month / Last month / All time + custom, no 12-month limit;
+2. the invoice date filter is for staff only;
+3. work orders filter on the check-in date;
+4. inventory sorts by SKU, Name, On hand and Price;
+5. phones get a "Sort by" dropdown;
+6. appointment filters are not in this step.
+
+**Changed after the first build (Nov 3, team decision):** the screens filter by **month and
+year** instead of From/To dates.
+- Two dropdowns (Year: All years, then this year back to 2022, Gregorian; Month: Whole year,
+  then Jan–Dec), plus "This month" / "Last month" shortcuts.
+- The URL is `?year=&month=`, and the page turns it into the API's `from`/`to`, so the API
+  and its tests are unchanged.
+- Why: shops review invoices and jobs by month (bookkeeping, VAT), dropdowns are quicker
+  than typing dates, and the browser's own date box followed the browser language
+  (`วว/ดด/ปปปป`).
+- Work orders show the filter only on the Completed / Cancelled tabs. Open jobs are all
+  current, and switching back to Open clears it.
+- The Reports page keeps a range, but the custom one is picked as whole months:
+  From [month][year] To [month][year], from the 1st of the start month to the end of the
+  end month. The same 12-month limit applies. The URL and API are unchanged (`?from=&to=`),
+  so the CSVs and the dashboard card didn't change, and an exact-day link still loads.
+
+Changes from the plan:
+- `dir` is optional (missing = ascending), so existing callers didn't change.
+- The date filter sits under the filter bar on both pages rather than inside
+  `WorkOrderFilters`.
+- An invalid `?sort=` in the URL falls back to the default order, like invalid dates do.
 
 ## Part A — finish Step 6 (reports) before it merges
 

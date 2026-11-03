@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { clearableText, ListQuerySchema, numberInput, textWithLetters, wholeNumber } from "./common";
+import { checkDateRange, clearableText, dateRangeFields, ListQuerySchema, numberInput, textWithLetters, wholeNumber } from "./common";
 import { CreateCustomerSchema } from "./customer";
 import { money } from "./inventory";
 import { CreateVehicleSchema } from "./vehicle";
@@ -225,10 +225,9 @@ export const WorkOrderListQuerySchema = ListQuerySchema.extend({
     .optional(),
   mechanic: z.string().trim().optional(),
   vehicleId: z.string().trim().optional(),
-  /** yyyy-mm-dd, inclusive, on the check-in date. */
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use yyyy-mm-dd").optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use yyyy-mm-dd").optional(),
-});
+  /** Bangkok days, inclusive, on the check-in date. */
+  ...dateRangeFields,
+}).superRefine(checkDateRange);
 
 export type WorkOrderListQuery = z.output<typeof WorkOrderListQuerySchema>;
 
