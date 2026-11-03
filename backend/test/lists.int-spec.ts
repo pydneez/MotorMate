@@ -18,6 +18,7 @@ const PASSWORD = "password123";
 let app: INestApplication;
 let prisma: InstanceType<typeof PrismaService>;
 const tokens: Record<"advisor" | "mechanic" | "customer", string> = {} as never;
+const customerIds = { jo: "", kim: "" };
 
 async function resetDatabase() {
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`
@@ -51,6 +52,8 @@ beforeAll(async () => {
   };
   const mine = await vehicleFor("Jo", "+66810000011", "VINLISTS000000001", users.customer.id);
   const other = await vehicleFor("Kim", "+66810000012", "VINLISTS000000002");
+  customerIds.jo = mine.customerId;
+  customerIds.kim = other.customerId;
 
   // WO-0001..0004 and INV-0001..0004, each checked in and invoiced at `at`.
   const job = async (vehicleId: string, at: string) => {
@@ -157,6 +160,29 @@ describe("appointment filters", () => {
   it("rejects unknown statuses and sources", async () => {
     await get(tokens.advisor, "/appointments?view=all&status=LATE").expect(400);
     await get(tokens.advisor, "/appointments?view=all&bookedBy=phone").expect(400);
+  });
+});
+
+describe("customer visits", () => {
+  it("lists a customer's jobs, newest first, with the invoice", async () => {
+    const { body } = await get(tokens.advisor, `/customers/${customerIds.kim}/visits`).expect(200);
+    expect(body.total).toBe(2);
+    expect(numbers(body)).toEqual([4, 3]);
+    expect(body.items[0]).toEqual(
+      expect.objectContaining({ status: "COMPLETED", complaint: "Service", invoice: expect.objectContaining({ number: 4, total: 107, status: "UNPAID" }) }),
+    );
+    expect(body.items[0]).not.toHaveProperty("mechanic");
+  });
+
+  it("pages", async () => {
+    const page2 = await get(tokens.advisor, `/customers/${customerIds.jo}/visits?pageSize=1&page=2`).expect(200);
+    expect(numbers(page2.body)).toEqual([1]);
+  });
+
+  it("is staff only, and 404s an unknown customer", async () => {
+    await get(tokens.customer, `/customers/${customerIds.jo}/visits`).expect(403);
+    await get(tokens.mechanic, `/customers/${customerIds.jo}/visits`).expect(403);
+    await get(tokens.advisor, "/customers/does-not-exist/visits").expect(404);
   });
 });
 

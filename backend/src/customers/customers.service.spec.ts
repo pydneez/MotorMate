@@ -304,3 +304,52 @@ describe("CustomersService.merge", () => {
     await expect(customers.merge(advisor, "kept", "ghost")).rejects.toThrow(NotFoundException);
   });
 });
+
+describe("CustomersService.visits", () => {
+  it("lists jobs across the customer's vehicles, newest first, with the invoice but no mechanic", async () => {
+    const { prisma, customers } = setup();
+    prisma.customer.findUnique.mockResolvedValue({ id: "cust-1" });
+    prisma.workOrder.findMany.mockResolvedValue([
+      {
+        id: "wo-2",
+        number: 2,
+        status: "COMPLETED",
+        createdAt: new Date("2026-10-20T03:00:00Z"),
+        completedAt: new Date("2026-10-21T03:00:00Z"),
+        complaint: "Brake noise",
+        mechanicId: "mech-1",
+        notes: "Internal note",
+        vehicle: { id: "veh-1", plate: "70-1234", province: "กรุงเทพมหานคร", make: "Isuzu", model: "D-Max" },
+        invoice: { id: "inv-1", number: 1, total: { toString: () => "321.00", valueOf: () => 321 }, status: "UNPAID" },
+      },
+    ]);
+    prisma.workOrder.count.mockResolvedValue(1);
+
+    const result = await customers.visits("cust-1", { page: 1, pageSize: 10 });
+
+    const args = prisma.workOrder.findMany.mock.calls[0][0];
+    expect(args.where).toEqual({ vehicle: { customerId: "cust-1" } });
+    expect(args.orderBy).toEqual([{ createdAt: "desc" }, { number: "desc" }]);
+    expect(args.take).toBe(10);
+    expect(result.items).toEqual([
+      {
+        workOrderId: "wo-2",
+        number: 2,
+        status: "COMPLETED",
+        checkedInAt: "2026-10-20T03:00:00.000Z",
+        completedAt: "2026-10-21T03:00:00.000Z",
+        vehicle: { id: "veh-1", plate: "70-1234", province: "กรุงเทพมหานคร", make: "Isuzu", model: "D-Max" },
+        complaint: "Brake noise",
+        invoice: { id: "inv-1", number: 1, total: 321, status: "UNPAID" },
+      },
+    ]);
+    expect(result.total).toBe(1);
+  });
+
+  it("returns not found for an unknown customer", async () => {
+    const { prisma, customers } = setup();
+    prisma.customer.findUnique.mockResolvedValue(null);
+    await expect(customers.visits("nope", { page: 1, pageSize: 10 })).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.workOrder.findMany).not.toHaveBeenCalled();
+  });
+});
