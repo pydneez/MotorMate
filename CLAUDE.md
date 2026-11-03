@@ -157,6 +157,14 @@ Patterns the existing modules follow (copy them for new ones):
 
 - **List endpoints** take `?q=&page=&pageSize=` (`ListQuerySchema`) and return
   `Paginated<T>`; multi-word searches AND their words (`searchTokens`).
+  - **Date ranges** (invoices: issue date; work orders: check-in date) are optional
+    `?from=&to=` Bangkok days: `...dateRangeFields` + `.superRefine(checkDateRange)` in the
+    query schema, `bangkokDayFilter()` (`backend/src/common/utils/dates.ts`) in the service.
+    No length limit on lists (reports keep 12 months).
+  - **Sorting** happens in the API (lists are paged): a fixed `sort` enum + `dir`, with
+    tie-breakers so paging is stable (inventory: `listOrder()`). Pages use `SortHeader` (and
+    `SortSelect` on phones) from `frontend/components/data`, and `DateRangeFilter` +
+    `readDateRange()` for dates — invalid URL values are dropped with a message, never a 400.
 - **Every write** that matters runs in `prisma.$transaction` together with `writeAudit(...)`.
 - **Customers are scoped in the service**, not just the guard: a customer requesting
   someone else's record gets **404**, never 403, so existence isn't revealed.
@@ -420,10 +428,11 @@ the build has followed so far — keep them.
 
 **Where things stand (Nov 3, 2026).** Steps 1–5 are merged: schema + auth, customers /
 vehicles / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments,
-reminder engine (PR #16). Step 6, reports (`docs/step-6-plan.md`), is on `feat/reports`:
-`/app/reports` + the admin dashboard cards. **Next: Step 7, list filters + sorting** —
-`docs/step-7-plan.md` (Jira CLOUDAPPG3-149…153; confirm its open decisions first). After
-that: `docs/backlog.md` (Jira CLOUDAPPG3-129…140).
+reminder engine (PR #16), reports (PR #21: `/app/reports` + the admin dashboard cards).
+Step 7, list filters + sorting (`docs/step-7-plan.md`, Jira CLOUDAPPG3-149…153), is on
+`feat/list-filters`: invoice and work-order date ranges (staff), inventory sorting. **Next:**
+`docs/backlog.md` (Jira CLOUDAPPG3-129…140) — appointment filters (131/132) are the next
+small item; code freeze is Nov 10.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
