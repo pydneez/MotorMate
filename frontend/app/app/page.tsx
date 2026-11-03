@@ -1,15 +1,7 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { Calendar, Car, Wrench } from "lucide-react";
-import {
-  matchReportPreset,
-  reportPresetRange,
-  ReportQuerySchema,
-  WORK_ORDER_STATUS_LABEL,
-  type OpenWorkOrderStatus,
-  type ReportQuery,
-  type ReportSummary,
-} from "@motormate/types";
+import { reportPresetRange } from "@motormate/types";
 import type {
   AppointmentCounts,
   AppointmentSummary,
@@ -18,22 +10,17 @@ import type {
   MyReminder,
   Paginated,
   ReminderCounts,
+  RevenueTotals,
   VehicleSummary,
   WorkOrderCounts,
 } from "@motormate/types";
 import { authOptions } from "@/auth";
 import { AppointmentStatusBadge } from "@/components/appointments/appointment-status-badge";
-import { CsvDownloads } from "@/components/reports/csv-downloads";
-import { ReportRange } from "@/components/reports/report-range";
-import { BUCKET_LABEL, formatDuration, formatPercent, PartsTable, Section, Stat, Tile } from "@/components/reports/report-widgets";
-import { RevenueChart } from "@/components/reports/revenue-chart";
 import { ReminderStateBadge, dueText } from "@/components/reminders/reminder-badges";
-import { Alert, EmptyState } from "@/components/ui";
 import { VehicleCard } from "@/components/vehicles/vehicle-card";
 import { api } from "@/lib/api";
-import { formatAppointmentTime, formatDate, formatTHB } from "@/lib/format";
+import { formatAppointmentTime, formatTHB } from "@/lib/format";
 import { serverGet } from "@/lib/server";
-import { ReportDashboard } from "@/components/reports/report-dashboard";
 
 function greeting(): string {
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", timeZone: "Asia/Bangkok" }).format(new Date()));
@@ -46,14 +33,29 @@ function greeting(): string {
  * Dashboard stat. Cards whose module isn't built yet show "—" and the module name; cards with
  * a value link to the page that explains it.
  */
-function StatCard({ label, note, value, href, alert }: { label: string; note: string; value?: number; href?: string; alert?: boolean }) {
+function StatCard({
+  label,
+  note,
+  value,
+  href,
+  alert,
+  noteAlert,
+}: {
+  label: string;
+  note: string;
+  value?: number | string;
+  href?: string;
+  alert?: boolean;
+  /** Amber note, e.g. "฿7,200.00 unpaid (3)". */
+  noteAlert?: boolean;
+}) {
   const body = (
     <>
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className={`mt-2 text-3xl font-semibold ${value === undefined ? "text-slate-300" : alert ? "text-red-700" : "text-slate-900"}`}>
         {value ?? "—"}
       </p>
-      <p className="mt-1 text-xs text-slate-400">{note}</p>
+      <p className={`mt-1 text-xs ${noteAlert ? "font-medium text-amber-700" : "text-slate-400"}`}>{note}</p>
     </>
   );
   const className = "block rounded-lg border border-slate-200 bg-white p-5 shadow-sm";
@@ -74,26 +76,27 @@ type CardSource =
   | "qualityCheck"
   | "todayAppointments"
   | "appointmentRequests"
-  | "dueForService";
+  | "dueForService"
+  | "revenueThisMonth";
 type CardSpec = { label: string; note: string; source?: CardSource };
 
 const LOW_STOCK_CARD: CardSpec = { label: "Low-stock items", note: "At or below reorder level", source: "lowStock" };
 const OPEN_WORK_ORDERS_CARD: CardSpec = { label: "Open work orders", note: "Checked in, not yet completed", source: "openWorkOrders" };
 const DUE_FOR_SERVICE_CARD: CardSpec = { label: "Due for service", note: "Due or overdue recommendations", source: "dueForService" };
+const TODAY_APPOINTMENTS_CARD: CardSpec = { label: "Today's appointments", note: "Booked for today", source: "todayAppointments" };
+const REQUESTS_CARD: CardSpec = { label: "Requests to confirm", note: "Customers waiting for an answer", source: "appointmentRequests" };
 
 const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, CardSpec[]> = {
+  // Two rows of three; the full reports are on /app/reports.
   ADMIN: [
     OPEN_WORK_ORDERS_CARD,
+    TODAY_APPOINTMENTS_CARD,
+    REQUESTS_CARD,
+    { label: "Revenue this month", note: "Invoiced, incl. VAT", source: "revenueThisMonth" },
     LOW_STOCK_CARD,
     DUE_FOR_SERVICE_CARD,
   ],
-  ADVISOR: [
-    OPEN_WORK_ORDERS_CARD,
-    { label: "Today's appointments", note: "Booked for today", source: "todayAppointments" },
-    { label: "Requests to confirm", note: "Customers waiting for an answer", source: "appointmentRequests" },
-    LOW_STOCK_CARD,
-    DUE_FOR_SERVICE_CARD,
-  ],
+  ADVISOR: [OPEN_WORK_ORDERS_CARD, TODAY_APPOINTMENTS_CARD, REQUESTS_CARD, LOW_STOCK_CARD, DUE_FOR_SERVICE_CARD],
   MECHANIC: [
     { label: "My assigned jobs", note: "Open jobs assigned to you", source: "myJobs" },
     { label: "Awaiting parts", note: "All mechanics", source: "awaitingParts" },
@@ -101,15 +104,32 @@ const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, CardSpec[]> = {
   ],
 };
 
-/** The number, link and highlight for a card whose module is built. */
+/** Grid columns by number of cards: admin 6 = two rows of three, advisor 5 = one row on wide screens. */
+const STAFF_CARD_COLUMNS: Record<number, string> = {
+  3: "lg:grid-cols-3",
+  5: "lg:grid-cols-3 xl:grid-cols-5",
+  6: "lg:grid-cols-3",
+};
+
+/** The value, link and highlight for a card; null (shown as "—") when its data didn't load. */
 function cardData(
   source: CardSource,
   inventory: InventorySummary | null,
   workOrders: WorkOrderCounts | null,
   appointments: AppointmentCounts | null,
   reminders: ReminderCounts | null,
-): { value: number; href: string; alert?: boolean } | null {
+  revenue: RevenueTotals | null,
+): { value: number | string; href: string; alert?: boolean; note?: string; noteAlert?: boolean } | null {
   switch (source) {
+    case "revenueThisMonth":
+      return (
+        revenue && {
+          value: formatTHB(revenue.total),
+          href: "/app/reports",
+          note: revenue.unpaid.count > 0 ? `${formatTHB(revenue.unpaid.total)} unpaid (${revenue.unpaid.count})` : "All paid",
+          noteAlert: revenue.unpaid.count > 0,
+        }
+      );
     case "dueForService":
       return (
         reminders && {
@@ -222,36 +242,23 @@ async function CustomerDashboard() {
   );
 }
 
-type Props = { searchParams: Record<string, string | string[] | undefined> };
-
-async function AdminDashboard({ searchParams, token }: { searchParams: Props["searchParams"]; token: string }) {
-  const requested = ReportQuerySchema.safeParse({ from: searchParams.from, to: searchParams.to });
-  const hasRequest = searchParams.from !== undefined || searchParams.to !== undefined;
-  const range: ReportQuery = requested.success ? requested.data : reportPresetRange("this-month");
-  const rangeError = hasRequest && !requested.success ? Object.values(requested.error.flatten().fieldErrors).flat()[0] : null;
-  const report = await api<ReportSummary>(`/reports/summary?from=${range.from}&to=${range.to}`, { token }).catch(() => null);
-
-  return (
-    <ReportDashboard
-      key={`${range.from}_${range.to}`}
-      basePath="/app"
-      initialRange={range}
-      initialReport={report}
-      initialError={rangeError ? `${rangeError} — showing this month instead.` : null}
-    />
-  );
+/** This month's invoiced totals for the admin card; null (card shows "—") if the call fails. */
+function revenueThisMonth(token: string): Promise<RevenueTotals | null> {
+  const { from, to } = reportPresetRange("this-month");
+  return api<RevenueTotals>(`/reports/revenue?from=${from}&to=${to}`, { token }).catch(() => null);
 }
 
-export default async function DashboardPage({ searchParams }: Props) {
+export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session) return null;
   const { user } = session;
   const isStaff = user.role === "ADMIN" || user.role === "ADVISOR";
-  const [inventory, workOrders, appointments, reminders] = await Promise.all([
+  const [inventory, workOrders, appointments, reminders, revenue] = await Promise.all([
     isStaff ? serverGet<InventorySummary>("/inventory/summary") : Promise.resolve(null),
     user.role !== "CUSTOMER" ? serverGet<WorkOrderCounts>("/work-orders/counts") : Promise.resolve(null),
     isStaff ? serverGet<AppointmentCounts>("/appointments/counts") : Promise.resolve(null),
     isStaff ? serverGet<ReminderCounts>("/reminders/counts") : Promise.resolve(null),
+    user.role === "ADMIN" ? revenueThisMonth(session.accessToken) : Promise.resolve(null),
   ]);
 
   return (
@@ -266,23 +273,11 @@ export default async function DashboardPage({ searchParams }: Props) {
         {user.role === "CUSTOMER" ? (
           <CustomerDashboard />
         ) : (
-          <div className="space-y-8">
-            <div
-              className={`grid gap-4 sm:grid-cols-2 ${
-                STAFF_CARDS[user.role].length > 4 ? "lg:grid-cols-3 xl:grid-cols-5" : STAFF_CARDS[user.role].length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"
-              }`}
-            >
-              {STAFF_CARDS[user.role].map(({ source, ...card }) => {
-                const data = source ? cardData(source, inventory, workOrders, appointments, reminders) : null;
-                return <StatCard key={card.label} {...card} {...(data ?? {})} />;
-              })}
-            </div>
-            {user.role === "ADMIN" && (
-              <section>
-                <h2 className="mb-4 text-lg font-semibold tracking-tight">Shop performance</h2>
-                <AdminDashboard searchParams={searchParams} token={session.accessToken} />
-              </section>
-            )}
+          <div className={`grid gap-4 sm:grid-cols-2 ${STAFF_CARD_COLUMNS[STAFF_CARDS[user.role].length] ?? "lg:grid-cols-4"}`}>
+            {STAFF_CARDS[user.role].map(({ source, ...card }) => {
+              const data = source ? cardData(source, inventory, workOrders, appointments, reminders, revenue) : null;
+              return <StatCard key={card.label} {...card} {...(data ?? {})} />;
+            })}
           </div>
         )}
       </div>
