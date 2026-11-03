@@ -59,6 +59,22 @@ export class InventoryService {
     return { quantityOnHand: { lte: this.prisma.inventoryItem.fields.reorderLevel } };
   }
 
+  /**
+   * Deactivated items always last. With `sort`, that column comes next, then name and id so
+   * paging stays stable even when many items share a value; without it, category then name.
+   */
+  private listOrder(query: InventoryListQuery): Prisma.InventoryItemOrderByWithRelationInput[] {
+    if (!query.sort) return [{ isActive: "desc" }, { category: "asc" }, { name: "asc" }];
+    const dir = query.dir ?? "asc";
+    const column: Prisma.InventoryItemOrderByWithRelationInput = {
+      sku: { sku: dir },
+      name: { name: dir },
+      quantity: { quantityOnHand: dir },
+      price: { unitPrice: dir },
+    }[query.sort];
+    return [{ isActive: "desc" }, column, ...(query.sort === "name" ? [] : [{ name: "asc" as const }]), { id: "asc" }];
+  }
+
   async list(query: InventoryListQuery): Promise<Paginated<InventoryItemSummary>> {
     const where: Prisma.InventoryItemWhereInput = {
       ...(query.includeInactive ? {} : { isActive: true }),
@@ -74,11 +90,7 @@ export class InventoryService {
       })),
     };
     const [rows, total] = await this.prisma.$transaction([
-      this.prisma.inventoryItem.findMany({
-        where,
-        orderBy: [{ isActive: "desc" }, { category: "asc" }, { name: "asc" }],
-        ...pageArgs(query),
-      }),
+      this.prisma.inventoryItem.findMany({ where, orderBy: this.listOrder(query), ...pageArgs(query) }),
       this.prisma.inventoryItem.count({ where }),
     ]);
     return paginated(rows.map(toSummary), total, query);
