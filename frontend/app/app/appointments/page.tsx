@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { CalendarPlus } from "lucide-react";
 import {
+  APPOINTMENT_BOOKED_BY,
+  APPOINTMENT_STATUSES,
   APPOINTMENT_VIEWS,
   formatWorkOrderNumber,
   type AppointmentCounts,
@@ -10,11 +12,13 @@ import {
   type Role,
 } from "@motormate/types";
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
+import { AppointmentFilters } from "@/components/appointments/appointment-filters";
 import { AppointmentStatusBadge } from "@/components/appointments/appointment-status-badge";
 import { AppointmentTabs } from "@/components/appointments/appointment-tabs";
 import { Pagination } from "@/components/data/pagination";
 import { SearchBox } from "@/components/data/search-box";
-import { Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { Alert, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { readMonthYear } from "@/lib/date-range";
 import { formatAppointmentTime, formatThaiPhone } from "@/lib/format";
 import { queryString, requireSession, serverGet } from "@/lib/server";
 
@@ -29,8 +33,25 @@ export default async function AppointmentsPage({ searchParams }: Props) {
 async function StaffAppointments({ role, searchParams }: Props & { role: Role }) {
   const requested = typeof searchParams.view === "string" ? searchParams.view : "";
   const view: AppointmentView = (APPOINTMENT_VIEWS as readonly string[]).includes(requested) ? (requested as AppointmentView) : "upcoming";
+  // The filters belong to the All tab; values not on the list are dropped, never a 400.
+  const isAll = view === "all";
+  const statuses = isAll && typeof searchParams.status === "string"
+    ? APPOINTMENT_STATUSES.filter((status) => (searchParams.status as string).split(",").includes(status))
+    : [];
+  const bookedBy = isAll ? APPOINTMENT_BOOKED_BY.find((value) => value === searchParams.bookedBy) : undefined;
+  const period: ReturnType<typeof readMonthYear> = isAll ? readMonthYear(searchParams) : { error: null };
   const [data, counts] = await Promise.all([
-    serverGet<Paginated<AppointmentSummary>>(`/appointments${queryString({ view, q: searchParams.q, page: searchParams.page })}`),
+    serverGet<Paginated<AppointmentSummary>>(
+      `/appointments${queryString({
+        view,
+        q: searchParams.q,
+        status: statuses.length > 0 ? statuses.join(",") : undefined,
+        bookedBy,
+        from: period.from,
+        to: period.to,
+        page: searchParams.page,
+      })}`,
+    ),
     serverGet<AppointmentCounts>("/appointments/counts"),
   ]);
 
@@ -48,11 +69,19 @@ async function StaffAppointments({ role, searchParams }: Props & { role: Role })
         <AppointmentTabs view={view} counts={counts} />
         <SearchBox placeholder="Search customer, plate or reason…" />
       </div>
+      {isAll && (
+        <div className="mt-3 space-y-3">
+          <AppointmentFilters statuses={statuses.length > 0 ? statuses : undefined} bookedBy={bookedBy} period={period} />
+          {period.error && <Alert tone="warning">{period.error}</Alert>}
+        </div>
+      )}
 
       <Card className="mt-4 overflow-hidden">
         {data.items.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No appointments here">{view === "requests" ? "No requests waiting for confirmation." : "Try another tab or search."}</EmptyState>
+            <EmptyState title={isAll ? "No appointments match these filters" : "No appointments here"}>
+              {view === "requests" ? "No requests waiting for confirmation." : isAll ? "Try other statuses or another month." : "Try another tab or search."}
+            </EmptyState>
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">
