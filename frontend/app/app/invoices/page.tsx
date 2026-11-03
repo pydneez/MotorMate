@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { formatInvoiceNumber, formatWorkOrderNumber, type InvoiceSummary, type Paginated } from "@motormate/types";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
+import { DateRangeFilter } from "@/components/data/date-range-filter";
 import { Pagination } from "@/components/data/pagination";
 import { SearchBox } from "@/components/data/search-box";
-import { Card, EmptyState, PageHeader } from "@/components/ui";
+import { Alert, Card, EmptyState, PageHeader } from "@/components/ui";
+import { readDateRange } from "@/lib/date-range";
 import { formatDate, formatTHB } from "@/lib/format";
 import { queryString, requireSession, serverGet } from "@/lib/server";
 
@@ -15,13 +17,17 @@ const TABS = [
   { value: "PAID", label: "Paid" },
 ] as const;
 
-/** Staff: every invoice, with Unpaid/Paid tabs and search. Customers: their own invoices. */
+/**
+ * Staff: every invoice, with Unpaid/Paid tabs, search and an issue-date range.
+ * Customers: their own invoices (no filters — they have a handful).
+ */
 export default async function InvoicesPage({ searchParams }: Props) {
   const { user } = await requireSession();
   const isCustomer = user.role === "CUSTOMER";
   const status = searchParams.status === "UNPAID" || searchParams.status === "PAID" ? searchParams.status : undefined;
+  const { from, to, error: rangeError } = isCustomer ? { from: undefined, to: undefined, error: null } : readDateRange(searchParams);
   const data = await serverGet<Paginated<InvoiceSummary>>(
-    `/invoices${queryString({ q: searchParams.q, status, page: searchParams.page })}`,
+    `/invoices${queryString({ q: searchParams.q, status, from, to, page: searchParams.page })}`,
   );
   const q = typeof searchParams.q === "string" ? searchParams.q : undefined;
 
@@ -29,30 +35,38 @@ export default async function InvoicesPage({ searchParams }: Props) {
     <div className="mx-auto max-w-6xl">
       <PageHeader title={isCustomer ? "My invoices" : "Invoices"} />
       {!isCustomer && (
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5">
-            {TABS.map((tab) => (
-              <Link
-                key={tab.label}
-                href={`/app/invoices${queryString({ q, status: tab.value })}`}
-                aria-current={status === tab.value ? "page" : undefined}
-                className={`rounded px-3 py-1.5 text-sm font-medium ${
-                  status === tab.value ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                {tab.label}
-              </Link>
-            ))}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5">
+              {TABS.map((tab) => (
+                <Link
+                  key={tab.label}
+                  href={`/app/invoices${queryString({ q, status: tab.value, from, to })}`}
+                  aria-current={status === tab.value ? "page" : undefined}
+                  className={`rounded px-3 py-1.5 text-sm font-medium ${
+                    status === tab.value ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {tab.label}
+                </Link>
+              ))}
+            </div>
+            <SearchBox placeholder="Search INV/WO number, plate, car or customer…" />
           </div>
-          <SearchBox placeholder="Search INV/WO number, plate, car or customer…" />
+          <DateRangeFilter label="Issued" range={{ from, to }} />
+          {rangeError && <Alert tone="warning">{rangeError}</Alert>}
         </div>
       )}
 
       <Card className="mt-4 overflow-hidden">
         {data.items.length === 0 ? (
           <div className="p-4">
-            <EmptyState title="No invoices here">
-              {isCustomer ? "Invoices appear here after each completed visit." : "Invoices are issued when a work order is completed."}
+            <EmptyState title={from || to ? "No invoices in this period" : "No invoices here"}>
+              {isCustomer
+                ? "Invoices appear here after each completed visit."
+                : from || to
+                  ? "Try another period, or All time."
+                  : "Invoices are issued when a work order is completed."}
             </EmptyState>
           </div>
         ) : (

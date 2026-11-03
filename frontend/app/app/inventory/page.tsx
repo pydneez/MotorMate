@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import type { InventoryItemSummary, Paginated } from "@motormate/types";
+import { INVENTORY_SORT_OPTIONS, InventoryListQuerySchema, type InventoryItemSummary, type Paginated } from "@motormate/types";
 import { Pagination } from "@/components/data/pagination";
 import { SearchBox } from "@/components/data/search-box";
+import { SortHeader } from "@/components/data/sort-header";
+import { SortSelect } from "@/components/data/sort-select";
 import { InventoryFilters } from "@/components/inventory/inventory-filters";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { formatTHB } from "@/lib/format";
@@ -22,6 +24,9 @@ function OnHand({ item }: { item: InventoryItemSummary }) {
 export default async function InventoryPage({ searchParams }: Props) {
   const { user } = await requireSession();
   const canManage = user.role === "ADMIN" || user.role === "ADVISOR";
+  // An unknown ?sort= (old link, typo) falls back to the default order instead of a 400.
+  const sort = InventoryListQuerySchema.shape.sort.safeParse(searchParams.sort).data;
+  const dir = sort ? InventoryListQuerySchema.shape.dir.safeParse(searchParams.dir).data : undefined;
   const [data, categories] = await Promise.all([
     serverGet<Paginated<InventoryItemSummary>>(
       `/inventory${queryString({
@@ -29,12 +34,15 @@ export default async function InventoryPage({ searchParams }: Props) {
         category: searchParams.category,
         lowStock: searchParams.lowStock,
         includeInactive: searchParams.includeInactive,
+        sort,
+        dir,
         page: searchParams.page,
       })}`,
     ),
     serverGet<string[]>("/inventory/categories"),
   ]);
   const filtered = Boolean(searchParams.q || searchParams.category || searchParams.lowStock);
+  const sortProps = { basePath: "/app/inventory", searchParams: { ...searchParams, sort, dir } };
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -52,6 +60,7 @@ export default async function InventoryPage({ searchParams }: Props) {
       <div className="flex flex-wrap items-center gap-4">
         <SearchBox placeholder="Search SKU, name or supplier…" />
         <InventoryFilters categories={categories} />
+        <SortSelect options={INVENTORY_SORT_OPTIONS} />
       </div>
 
       <Card className="mt-4 overflow-hidden">
@@ -64,11 +73,11 @@ export default async function InventoryPage({ searchParams }: Props) {
             <table className="hidden w-full text-sm md:table">
               <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-3">SKU</th>
-                  <th className="px-4 py-3">Name</th>
+                  <SortHeader column="sku" label="SKU" {...sortProps} />
+                  <SortHeader column="name" label="Name" {...sortProps} />
                   <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3 text-right">On hand</th>
-                  <th className="px-4 py-3 text-right">Price</th>
+                  <SortHeader column="quantity" label="On hand" align="right" {...sortProps} />
+                  <SortHeader column="price" label="Price" align="right" {...sortProps} />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
