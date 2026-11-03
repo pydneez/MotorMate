@@ -14,6 +14,7 @@ import {
   type ListQuery,
   type MergeCustomerInput,
   type Paginated,
+  type VisitSummary,
 } from "@motormate/types";
 import { CurrentUser } from "../common/decorators/current-user.decorator";
 import { Roles } from "../common/decorators/roles.decorator";
@@ -64,6 +65,13 @@ export class CustomersController {
   @Roles("ADMIN", "ADVISOR")
   findOne(@Param("id") id: string): Promise<CustomerDetail> {
     return this.customers.findOne(id);
+  }
+
+  /** The customer page's Visits list. Staff only — customers see their invoices and vehicle history. */
+  @Get(":id/visits")
+  @Roles("ADMIN", "ADVISOR")
+  visits(@Param("id") id: string, @Query(new ZodValidationPipe(ListQuerySchema)) query: ListQuery): Promise<Paginated<VisitSummary>> {
+    return this.customers.visits(id, query);
   }
 
   @Post()

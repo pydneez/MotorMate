@@ -13,6 +13,7 @@ import {
   type Paginated,
   type UpdateCustomerSchema,
   type UpdateOwnCustomerSchema,
+  type VisitSummary,
 } from "@motormate/types";
 import type { z } from "zod";
 import { diffFields, writeAudit } from "../common/utils/audit";
@@ -80,6 +81,39 @@ export class CustomersService {
     if (!customer) throw new NotFoundException("Customer not found");
     const { vehicles, ...rest } = customer;
     return { ...toSummary(rest), vehicles: vehicles.map(toVehicleSummary) };
+  }
+
+  /** Every job on any of the customer's vehicles, newest check-in first, paged (staff). */
+  async visits(id: string, query: ListQuery): Promise<Paginated<VisitSummary>> {
+    const exists = await this.prisma.customer.findUnique({ where: { id }, select: { id: true } });
+    if (!exists) throw new NotFoundException("Customer not found");
+    const where: Prisma.WorkOrderWhereInput = { vehicle: { customerId: id } };
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.workOrder.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }, { number: "desc" }],
+        include: {
+          vehicle: { select: { id: true, plate: true, province: true, make: true, model: true } },
+          invoice: { select: { id: true, number: true, total: true, status: true } },
+        },
+        ...pageArgs(query),
+      }),
+      this.prisma.workOrder.count({ where }),
+    ]);
+    return paginated(
+      rows.map((row) => ({
+        workOrderId: row.id,
+        number: row.number,
+        status: row.status,
+        checkedInAt: row.createdAt.toISOString(),
+        completedAt: row.completedAt?.toISOString() ?? null,
+        vehicle: row.vehicle,
+        complaint: row.complaint,
+        invoice: row.invoice && { ...row.invoice, total: Number(row.invoice.total) },
+      })),
+      total,
+      query,
+    );
   }
 
   async create(actor: AuthUser, input: CreateCustomerData): Promise<CustomerSummary> {
