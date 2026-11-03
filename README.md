@@ -109,6 +109,7 @@ Stop with `Ctrl+C`, then `docker compose --profile app down`.
 | `npm run db:migrate` | Apply schema changes after pulling new migrations, then regenerate the Prisma client |
 | `npm run db:generate` | Regenerate the Prisma client only (e.g. after switching branches) |
 | `npm run db:seed` | Populate sample data (safe to re-run, upserts) |
+| `npm run db:seed:demo` | Add ~6 months of demo history on top (for the presentation and end-to-end tests; runs once) |
 | `npm run typecheck` | Type-check every package |
 | `npm run test` | Run unit tests in every package |
 | `npm run test:integration` | Run backend tests against a real Postgres (`motormate_test` database — create it once, see below) |
@@ -132,6 +133,9 @@ Everyone runs their **own** local Postgres via Docker. To keep local data consis
 - Use `npm run db:seed` to populate sample data (one login per role, three customers
   with Thai phone numbers and plates, ten inventory parts, an open and a completed work
   order, and a pending appointment). Safe to re-run — it won't duplicate rows.
+- `npm run db:seed:demo` adds a fuller demo history (customers, ~45 invoiced jobs, open jobs
+  at every step, bookings, reminders) so Reports and the filters have data. To remove it,
+  reset the database: `pnpm --filter backend exec prisma migrate reset`.
 - Never commit `.env` — only `.env.example` should be in git. Local `.env` values
   (database password, `JWT_SECRET`, `NEXTAUTH_SECRET`) are per machine and never need
   sharing; AWS secrets are generated per account into the gitignored `infra/.secrets/`.
