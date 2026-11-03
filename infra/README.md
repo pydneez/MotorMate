@@ -87,8 +87,8 @@ debugging; sign-in needs the HTTPS `SiteUrl`.
 | `up.sh [--multi-az]` | base → database + images (in parallel) → migrations → app → seed. Safe to re-run: it updates what changed. `--multi-az` for the demo account. |
 | `build-push.sh` | builds the three images (backend, migrate, frontend), tags them with the git commit (`-dirty` if uncommitted), pushes to ECR. Skips images already pushed. |
 | `migrate.sh` | runs `prisma migrate deploy` as a one-off container from the small migrate image. |
-| `seed.sh` | runs the seed as a one-off backend container (`node dist-seed/prisma/seed.js`); upserts, so re-running is harmless. |
-| `smoke.sh` | end-to-end check through the HTTPS address. |
+| `seed.sh` | runs the seed as a one-off backend container (`node dist-seed/prisma/seed.js`); upserts, so re-running is harmless. `--demo` adds ~6 months of demo history instead (`seed-demo.js`; runs once) — use it on the demo account. |
+| `smoke.sh` | end-to-end check through the HTTPS address: login, roles, reports + CSV, list filters, visits, invoice PDF, daily jobs. |
 | `status.sh` | stack states, running containers, database, cost per hour. |
 | `down.sh [--keep-db]` | deletes the app stack and the database (or keeps it with `--keep-db`). |
 | `nuke.sh [--yes]` | deletes all three stacks, ECR images and logs. Dry run without `--yes`. |
