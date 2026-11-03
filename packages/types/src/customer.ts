@@ -1,7 +1,9 @@
 import { z } from "zod";
 import { blankAsNull, blankAsUndefined, clearableEmail, clearableText, LineIdSchema, personName } from "./common";
 import { ThaiPhoneSchema } from "./thai";
+import type { InvoiceStatus } from "./invoice";
 import type { VehicleSummary } from "./vehicle";
+import type { WorkOrderStatus } from "./work-order";
 
 export const CustomerSchema = z.object({
   id: z.string(),
@@ -28,6 +30,21 @@ export type CustomerSummary = Customer & {
 
 export type CustomerDetail = CustomerSummary & {
   vehicles: VehicleSummary[];
+};
+
+/**
+ * One job on the customer page's Visits list (GET /customers/:id/visits, staff), across all
+ * their vehicles. No mechanic, notes or line items — those are on the work order itself.
+ */
+export type VisitSummary = {
+  workOrderId: string;
+  number: number;
+  status: WorkOrderStatus;
+  checkedInAt: string;
+  completedAt: string | null;
+  vehicle: { id: string; plate: string; province: string; make: string; model: string };
+  complaint: string;
+  invoice: { id: string; number: number; total: number; status: InvoiceStatus } | null;
 };
 
 const optionalText = z
