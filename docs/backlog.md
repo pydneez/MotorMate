@@ -144,6 +144,9 @@ the notes above:
 
 1. ~~**1 + 2** together~~ — done.
 2. ~~**3**~~ — done.
-3. **4** — together with "customer portal views" (the last stretch item).
+3. ~~**4**~~ — staff side done (Step 9, `feat/visit-history`): the Visits list on the
+   customer page. **Not built:** the customer's own "My visits" page (CLOUDAPPG3-135). My
+   Invoices and each vehicle's service history already show it. Appointments aren't in the
+   list; they have their own page.
 4. **5** — the largest (schema, booking, check-in, work order, admin page); only if there's
    time before Nov 1, otherwise it's a strong "future work" item for the final document.

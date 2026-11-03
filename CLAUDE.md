@@ -354,6 +354,10 @@ schema before calling the API. List search and paging live in the URL.
 - **Mileage never decreases** except by an admin correction (audited).
 - **Duplicates:** VIN is a hard unique constraint. Same phone (customer) or same
   plate+province (vehicle) only raises a "possible duplicate" warning.
+- **Visits** (`GET /customers/:id/visits`, admin/advisor, `VisitSummary`): every job on any of
+  the customer's vehicles (cancelled included), newest check-in first, paged 10 on the
+  customer page (`?visits=N`), with the invoice and paid/unpaid. No mechanic, notes or lines.
+  Customers don't get this list: they have My Invoices and each vehicle's service history.
 - **Merging duplicate customers** (`POST /customers/:id/merge`, admin/advisor): the usual
   case is a walk-in record (phone only) plus a later self-registration with the same phone.
   - Only records with the **same phone**; at most **one** may have a portal login, and
@@ -386,7 +390,9 @@ Target: feature-complete by **Nov 1, 2026**; Nov 2–10 is buffer, hardening, an
 2. **Stretch, in priority order** (reordered Oct 22: appointments moved ahead of reminders,
    reporting after them): ~~invoice PDF to S3~~ (done), ~~Lite appointments~~ (done),
    ~~reminder engine~~ (done — SNS email, see Reminders), ~~reporting dashboard + CSV export~~
-   (done — see Reports), customer portal views.
+   (done — see Reports), ~~customer portal views~~ (done as far as planned: customers see
+   their vehicles + service history, invoices, appointments and reminders; staff get each
+   customer's Visits list — a separate customer "My visits" page was judged redundant).
 
 If a feature isn't in the MVP list above, don't build ahead of it — ask the team first,
 since scope is intentionally tight against the Nov deadline.
@@ -450,13 +456,14 @@ The build is done in numbered steps (Step 1 = schema + auth, Step 2 = ...). For 
 Several team members build MotorMate, each with their own Claude Code. These are the habits
 the build has followed so far — keep them.
 
-**Where things stand (Nov 3, 2026).** Steps 1–5 are merged: schema + auth, customers /
-vehicles / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments,
-reminder engine (PR #16), reports (PR #21), list filters + sorting (PR #22). Step 8 —
-backlog #1–3: work-order progress bar + action-named buttons, button colours by meaning,
-appointment filters (Jira CLOUDAPPG3-129…132) — is on `feat/status-buttons`. **Left in the
-backlog:** #4 visit history (133–135) and #5 price list (136–140) — likely "future work" in
-the final document; code freeze is Nov 10, demo account deploy Nov 8–10.
+**Where things stand (Nov 4, 2026).** Merged: Steps 1–5 (schema + auth, customers / vehicles
+/ inventory, work orders + invoices, AWS deployment, invoice PDF, appointments, reminder
+engine), reports (PR #21), list filters + sorting (PR #22), status buttons / colours /
+appointment filters (PR #23). Step 9 — the Visits list on the staff customer page (Jira
+CLOUDAPPG3-133/134) — is on `feat/visit-history`; the customer-side "My visits" (135) was
+dropped (invoices + vehicle history cover it). **Feature work is done:** the price list (#5,
+136–140) is "future work" in the final document. Next: hardening + the final document
+(Nov 6–7), demo account deploy (Nov 8–10), code freeze Nov 10.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -502,7 +509,9 @@ NextAuth + our own JWT; private subnets + NAT → public subnets with locked-dow
 groups (NAT too expensive); SES → SNS email (SES denied); Multi-AZ only in the demo
 account (cost); only `LabRole` exists, so no least-privilege IAM roles (documented limit);
 reports show revenue, not profit, and no "most-performed services" (no cost snapshot on
-parts used; labour lines are free text until a price list exists).
+parts used; labour lines are free text until a price list exists); no customer "My visits"
+page (My Invoices + each vehicle's service history already show it; staff get a Visits list
+per customer); the fixed-price service list is future work (too big for the time left).
 
 ## Local development
 
