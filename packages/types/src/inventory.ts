@@ -104,7 +104,24 @@ export const InventoryListQuerySchema = ListQuerySchema.extend({
     .transform((value) => value || undefined),
   lowStock: QueryBooleanSchema,
   includeInactive: QueryBooleanSchema,
+  /** Without `sort` the list keeps its default order (active, category, name). */
+  sort: z.enum(["sku", "name", "quantity", "price"]).optional(),
+  /** With `sort`; missing = ascending. */
+  dir: z.enum(["asc", "desc"]).optional(),
 });
+
+export type InventorySort = NonNullable<z.output<typeof InventoryListQuerySchema>["sort"]>;
+
+/** Sort options for the phone dropdown (the table's headers sort on wider screens). */
+export const INVENTORY_SORT_OPTIONS: { sort: InventorySort; dir: "asc" | "desc"; label: string }[] = [
+  { sort: "sku", dir: "asc", label: "SKU A–Z" },
+  { sort: "name", dir: "asc", label: "Name A–Z" },
+  { sort: "name", dir: "desc", label: "Name Z–A" },
+  { sort: "quantity", dir: "asc", label: "Lowest stock first" },
+  { sort: "quantity", dir: "desc", label: "Highest stock first" },
+  { sort: "price", dir: "asc", label: "Lowest price first" },
+  { sort: "price", dir: "desc", label: "Highest price first" },
+];
 
 export type InventoryListQuery = z.output<typeof InventoryListQuerySchema>;
 

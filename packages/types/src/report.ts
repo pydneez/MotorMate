@@ -1,32 +1,20 @@
 import { z } from "zod";
 import { bangkokParts } from "./appointment";
+import { checkDateRange, DaySchema, dayValue } from "./common";
 import type { WorkOrderStatus } from "./work-order";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const REPORT_MAX_DAYS = 366;
 
-function dayValue(day: string): number | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
-  if (!match) return null;
-  const [year, month, date] = match.slice(1).map(Number);
-  const value = Date.UTC(year, month - 1, date);
-  const check = new Date(value);
-  return check.getUTCFullYear() === year && check.getUTCMonth() === month - 1 && check.getUTCDate() === date ? value : null;
-}
-
-const ReportDaySchema = z
-  .string({ required_error: "Choose a date" })
-  .refine((day) => dayValue(day) !== null, "Use a real date (yyyy-mm-dd)");
-
 export const ReportQuerySchema = z
-  .object({ from: ReportDaySchema, to: ReportDaySchema })
+  .object({ from: DaySchema, to: DaySchema })
   .superRefine(({ from, to }, ctx) => {
     const start = dayValue(from);
     const end = dayValue(to);
     if (start === null || end === null) return;
     if (end < start) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["to"], message: "The end date can't be before the start date" });
+      checkDateRange({ from, to }, ctx);
     } else if (reportDayCount(from, to) > REPORT_MAX_DAYS) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["to"], message: "Choose at most 12 months" });
     }

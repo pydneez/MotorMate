@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ListQuerySchema } from "./common";
+import { checkDateRange, dateRangeFields, ListQuerySchema } from "./common";
 import type { WorkOrderLabourLine, WorkOrderPartLine } from "./work-order";
 
 /** Same rate as work-order totals; kept under this name for the seed script. */
@@ -26,10 +26,14 @@ export function parseInvoiceNumber(input: string): number | null {
   return match ? Number(match[1]) : null;
 }
 
-/** ?status=UNPAID|PAID&q= — q matches invoice/job number, plate or customer name. */
+/**
+ * ?status=UNPAID|PAID&from=&to=&q= — q matches invoice/job number, plate or customer name;
+ * from/to are Bangkok days on the issue date, inclusive.
+ */
 export const InvoiceListQuerySchema = ListQuerySchema.extend({
   status: z.enum(["UNPAID", "PAID"]).optional(),
-});
+  ...dateRangeFields,
+}).superRefine(checkDateRange);
 
 export type InvoiceListQuery = z.output<typeof InvoiceListQuerySchema>;
 
