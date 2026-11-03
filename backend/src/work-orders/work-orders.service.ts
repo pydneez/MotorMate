@@ -33,6 +33,7 @@ import {
 } from "@motormate/types";
 import type { z } from "zod";
 import { diffFields, writeAudit } from "../common/utils/audit";
+import { bangkokDayFilter } from "../common/utils/dates";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { StockService } from "../inventory/stock.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -50,9 +51,6 @@ export type AddRecommendationData = z.output<typeof AddRecommendationSchema>;
 const OPEN_STATUSES: WorkOrderStatus[] = ["CHECKED_IN", "DIAGNOSING", "AWAITING_PARTS", "IN_PROGRESS", "QUALITY_CHECK"];
 const isStaff = (user: AuthUser) => user.role === "ADMIN" || user.role === "ADVISOR";
 
-/** Start/end of a yyyy-mm-dd day in shop time (Bangkok, UTC+7). */
-const dayStart = (day: string) => new Date(`${day}T00:00:00+07:00`);
-const dayEnd = (day: string) => new Date(`${day}T23:59:59.999+07:00`);
 /** Today as yyyy-mm-dd in shop time. */
 const bangkokToday = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
@@ -79,9 +77,7 @@ export class WorkOrdersService {
       ...this.statusFilter(query.status),
       ...this.mechanicFilter(user, query.mechanic),
       ...(query.vehicleId ? { vehicleId: query.vehicleId } : {}),
-      ...(query.from || query.to
-        ? { createdAt: { ...(query.from ? { gte: dayStart(query.from) } : {}), ...(query.to ? { lte: dayEnd(query.to) } : {}) } }
-        : {}),
+      ...(query.from || query.to ? { createdAt: bangkokDayFilter(query.from, query.to) } : {}),
       AND: searchTokens(query.q).map((token) => {
         const or: Prisma.WorkOrderWhereInput[] = [
           { complaint: { contains: token, mode: "insensitive" } },
