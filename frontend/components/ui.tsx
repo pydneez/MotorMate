@@ -41,13 +41,34 @@ export const Field = forwardRef<HTMLInputElement, FieldProps>(function Field(
   );
 });
 
-type ButtonVariant = "primary" | "secondary" | "danger";
+/**
+ * Colours by meaning, so every page agrees (CLAUDE.md "Button colours"): blue = the normal
+ * next step, green = forward/done, amber outline = going back or pausing, red = stop/remove
+ * (outline on list rows, solid in the confirm dialog), grey = secondary. Text always says
+ * what the button does — colour is never the only signal.
+ */
+export type ButtonVariant = "primary" | "success" | "warning" | "danger" | "dangerOutline" | "secondary";
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
   primary: "bg-blue-600 text-white shadow-sm hover:bg-blue-700 focus:ring-blue-300",
-  secondary: "border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50 focus:ring-slate-200",
+  success: "bg-green-600 text-white shadow-sm hover:bg-green-700 focus:ring-green-300",
+  warning: "border border-amber-400 bg-white text-amber-800 shadow-sm hover:bg-amber-50 focus:ring-amber-200",
   danger: "bg-red-600 text-white shadow-sm hover:bg-red-700 focus:ring-red-300",
+  dangerOutline: "border border-red-300 bg-white text-red-700 shadow-sm hover:bg-red-50 focus:ring-red-200",
+  secondary: "border border-slate-300 bg-white text-slate-700 shadow-sm hover:bg-slate-50 focus:ring-slate-200",
 };
+
+/** The colour for each named action outside the work-order status buttons (which use STATUS tones). */
+export const ACTION_VARIANT = {
+  confirmAppointment: "success",
+  checkIn: "success",
+  markPaid: "success",
+  reminderDone: "success",
+  reschedule: "warning",
+  noShow: "dangerOutline",
+  cancelAppointment: "dangerOutline",
+  reminderDismiss: "dangerOutline",
+} as const satisfies Record<string, ButtonVariant>;
 
 /** Button styles, shared with links that look like buttons (see LinkButton). */
 export function buttonClasses(variant: ButtonVariant = "primary", className = ""): string {

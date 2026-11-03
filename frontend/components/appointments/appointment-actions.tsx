@@ -12,7 +12,7 @@ import {
   type Role,
 } from "@motormate/types";
 import { Modal } from "@/components/data/modal";
-import { Alert, Button, Field, LinkButton } from "@/components/ui";
+import { ACTION_VARIANT, Alert, Button, Field, LinkButton } from "@/components/ui";
 import { formValues, useApi, useFormSubmit } from "@/lib/client";
 import { formatAppointmentTime } from "@/lib/format";
 import { AppointmentTimeFields } from "./appointment-time-fields";
@@ -70,27 +70,27 @@ export function AppointmentActions({ appointment, role }: { appointment: Appoint
   return (
     <div className="flex flex-wrap gap-1.5">
       {actions.includes("confirm") && (
-        <Button className={SMALL} loading={submitting && dialog === null} onClick={() => run("/confirm", { method: "POST" })}>
+        <Button variant={ACTION_VARIANT.confirmAppointment} className={SMALL} loading={submitting && dialog === null} onClick={() => run("/confirm", { method: "POST" })}>
           Confirm
         </Button>
       )}
       {actions.includes("checkIn") && (
-        <LinkButton href={`/app/work-orders/new?appointment=${appointment.id}`} className={SMALL}>
+        <LinkButton href={`/app/work-orders/new?appointment=${appointment.id}`} variant={ACTION_VARIANT.checkIn} className={SMALL}>
           Check in
         </LinkButton>
       )}
       {actions.includes("reschedule") && (
-        <Button variant="secondary" className={SMALL} onClick={() => open("reschedule")}>
+        <Button variant={ACTION_VARIANT.reschedule} className={SMALL} onClick={() => open("reschedule")}>
           {isCustomer ? "Change time" : "Reschedule"}
         </Button>
       )}
       {actions.includes("noShow") && (
-        <Button variant="secondary" className={SMALL} onClick={() => open("noShow")}>
+        <Button variant={ACTION_VARIANT.noShow} className={SMALL} onClick={() => open("noShow")}>
           No-show
         </Button>
       )}
       {actions.includes("cancel") && (
-        <Button variant="secondary" className={SMALL} onClick={() => open("cancel")}>
+        <Button variant={ACTION_VARIANT.cancelAppointment} className={SMALL} onClick={() => open("cancel")}>
           Cancel
         </Button>
       )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Alert, Button } from "@/components/ui";
+import { ACTION_VARIANT, Alert, Button } from "@/components/ui";
 import { useApi, useFormSubmit } from "@/lib/client";
 
 const SMALL = "px-2.5 py-1 text-xs";
@@ -24,10 +24,10 @@ export function ReminderActions({ id }: { id: string }) {
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
-        <Button className={SMALL} variant="secondary" disabled={submitting} onClick={() => close("DONE")}>
+        <Button className={SMALL} variant={ACTION_VARIANT.reminderDone} disabled={submitting} onClick={() => close("DONE")}>
           Done
         </Button>
-        <Button className={SMALL} variant="secondary" disabled={submitting} onClick={() => close("DISMISSED")}>
+        <Button className={SMALL} variant={ACTION_VARIANT.reminderDismiss} disabled={submitting} onClick={() => close("DISMISSED")}>
           Dismiss
         </Button>
       </div>
