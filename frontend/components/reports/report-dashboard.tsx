@@ -144,6 +144,10 @@ export function ReportDashboard({
             <Stat label="No-show" value={`${bookings.noShow} (${formatPercent(bookings.noShowRate)})`} />
             <Stat label="Cancelled" value={bookings.cancelled} />
             <Stat label="New customers" value={bookings.newCustomers} />
+            <Stat
+              label="Repeat customers"
+              value={`${bookings.repeatCustomers} of ${bookings.servedCustomers} served (${formatPercent(bookings.repeatRate)})`}
+            />
             <Stat label="Reminder emails sent" value={bookings.remindersSent} />
           </dl>
         </Section>
