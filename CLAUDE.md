@@ -138,6 +138,7 @@ backend/src/
   reminders/            Reminders page API, "Run daily jobs now", POST /jobs/:job (job token)
   appointments/         "Lite" booking: request, confirm, reschedule, cancel, no-show
                         (check-in itself is POST /work-orders with appointmentId)
+  reports/              admin-only summary, revenue totals, CSV exports (csv.ts)
   common/
     decorators/          @Public, @Roles, @CurrentUser
     guards/              JwtAuthGuard, RolesGuard (both global)
@@ -295,6 +296,24 @@ schema before calling the API. List search and paging live in the URL.
     generated on first download, stored at `invoices/<invoiceId>/INV-0001.pdf` (key in
     `Invoice.pdfKey`, set once) and served as a 5-minute presigned S3 link; regenerated if
     the object is missing. Without a bucket (local) it's returned inline as a `data:` URL.
+- **Reports** (`backend/src/reports`, range rules in `packages/types/src/report.ts`), **admin
+  only** (others 403):
+  - `GET /reports/summary?from=&to=` — every number on `/app/reports`; `GET /reports/revenue`
+    — just invoiced / paid / unpaid (3 queries; the dashboard's "Revenue this month" card);
+    `GET /reports/export/invoices|work-orders|parts` — CSV.
+  - Ranges are Bangkok calendar days, end ≥ start, at most 366 days. The chart groups by day
+    up to 31 days, by week (Monday) up to 92, then by month.
+  - Revenue counts by **invoice date** (VOID excluded), with paid and unpaid beside it.
+    Revenue only — no profit: parts used keep the price charged, not the cost at the time.
+  - **Repeat customers:** of the customers with a job completed in the period, those with at
+    least two completed jobs by its end (by the vehicle's current owner).
+  - Not built: "most-performed services" — labour lines are free text, so it needs the
+    price list (parked idea below) first.
+  - CSVs are UTF-8 with BOM (Thai text in Excel), CRLF; cells starting `= + - @` get a `'` so
+    Excel won't run them. The page downloads with the bearer token (fetch → blob).
+  - `/app` (admin) shows six stat cards — open work orders, today's appointments, requests to
+    confirm, revenue this month (→ `/app/reports`), low stock, due for service; the full
+    report is `/app/reports`.
 - **Stock is deducted when a part is logged** on a work order (it reserves the part), and
   returned when the part is removed or the work order is cancelled. Every change writes a
   `StockMovement` in the same DB transaction.
@@ -341,8 +360,8 @@ Target: feature-complete by **Nov 1, 2026**; Nov 2–10 is buffer, hardening, an
    stock deduction → invoice on completion).
 2. **Stretch, in priority order** (reordered Oct 22: appointments moved ahead of reminders,
    reporting after them): ~~invoice PDF to S3~~ (done), ~~Lite appointments~~ (done),
-   ~~reminder engine~~ (done — SNS email, see Reminders), reporting dashboard + CSV export,
-   customer portal views.
+   ~~reminder engine~~ (done — SNS email, see Reminders), ~~reporting dashboard + CSV export~~
+   (done — see Reports), customer portal views.
 
 If a feature isn't in the MVP list above, don't build ahead of it — ask the team first,
 since scope is intentionally tight against the Nov deadline.
@@ -399,11 +418,12 @@ The build is done in numbered steps (Step 1 = schema + auth, Step 2 = ...). For 
 Several team members build MotorMate, each with their own Claude Code. These are the habits
 the build has followed so far — keep them.
 
-**Where things stand (Oct 23, 2026).** Steps 1–5 are merged: schema + auth, customers /
+**Where things stand (Nov 3, 2026).** Steps 1–5 are merged: schema + auth, customers /
 vehicles / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments,
-reminder engine (PR #16). **Next: Step 6, reporting dashboard + CSV export** — the plan,
-with its open decisions, is in `docs/step-6-plan.md` (confirm the decisions with the team
-before building). After that: `docs/backlog.md` (Jira CLOUDAPPG3-129…140).
+reminder engine (PR #16). Step 6, reports (`docs/step-6-plan.md`), is on `feat/reports`:
+`/app/reports` + the admin dashboard cards. **Next: Step 7, list filters + sorting** —
+`docs/step-7-plan.md` (Jira CLOUDAPPG3-149…153; confirm its open decisions first). After
+that: `docs/backlog.md` (Jira CLOUDAPPG3-129…140).
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -447,7 +467,9 @@ design needs a one-line "why". So far: no domain → HTTPS from API Gateway's ce
 (CloudFront denied); Amplify → frontend as an ECS container (Amplify restricted); Cognito →
 NextAuth + our own JWT; private subnets + NAT → public subnets with locked-down security
 groups (NAT too expensive); SES → SNS email (SES denied); Multi-AZ only in the demo
-account (cost); only `LabRole` exists, so no least-privilege IAM roles (documented limit).
+account (cost); only `LabRole` exists, so no least-privilege IAM roles (documented limit);
+reports show revenue, not profit, and no "most-performed services" (no cost snapshot on
+parts used; labour lines are free text until a price list exists).
 
 ## Local development
 

@@ -1,9 +1,14 @@
 # Step 6 plan — reporting dashboard + CSV export
 
-Status: **planned, not started.** Proposed Oct 23, 2026. Per the working agreement in
-CLAUDE.md, confirm the open decisions below with the team (and get a go-ahead) before
-building. Branch: `feat/reports` from `main`. Jira epic: 105 Reporting & Analytics — match
-its tickets to this plan and move them to In Progress when the step starts.
+Status: **built** (Nov 3, 2026) on `feat/reports` — the plan below as decided, plus:
+- the report is its own page, `/app/reports`; the admin dashboard keeps six stat cards,
+  one of them "Revenue this month" from the light `GET /reports/revenue`;
+- repeat customers were added to the Bookings section;
+- "most-performed services" is left out until labour has a price list.
+
+Decisions taken: 1 admin only · 2 invoice date · 3 revenue only · 4 built-in bars ·
+5 invoices, work orders, parts used · 6 presets + custom, at most 12 months. Jira epic 105:
+CLOUDAPPG3-36, 47, 48, 49, 50, 119, 154–157.
 
 ## What this step covers
 
