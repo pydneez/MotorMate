@@ -67,6 +67,21 @@ describe("InventoryService.list / summary", () => {
     expect(where.AND[0].OR).toContainEqual({ supplier: { contains: "bosch", mode: "insensitive" } });
   });
 
+  it("keeps the default order without a sort, and sorts by a chosen column with stable tie-breaks", async () => {
+    const { prisma, inventory } = setup();
+
+    await inventory.list({ page: 1, pageSize: 20 });
+    await inventory.list({ page: 1, pageSize: 20, sort: "quantity" });
+    await inventory.list({ page: 1, pageSize: 20, sort: "price", dir: "desc" });
+    await inventory.list({ page: 1, pageSize: 20, sort: "name", dir: "desc" });
+
+    const orders = prisma.inventoryItem.findMany.mock.calls.map((call) => call[0].orderBy);
+    expect(orders[0]).toEqual([{ isActive: "desc" }, { category: "asc" }, { name: "asc" }]);
+    expect(orders[1]).toEqual([{ isActive: "desc" }, { quantityOnHand: "asc" }, { name: "asc" }, { id: "asc" }]);
+    expect(orders[2]).toEqual([{ isActive: "desc" }, { unitPrice: "desc" }, { name: "asc" }, { id: "asc" }]);
+    expect(orders[3]).toEqual([{ isActive: "desc" }, { name: "desc" }, { id: "asc" }]);
+  });
+
   it("counts active and low-stock items for the dashboard", async () => {
     const { prisma, inventory } = setup();
     prisma.inventoryItem.count.mockResolvedValueOnce(10).mockResolvedValueOnce(3);

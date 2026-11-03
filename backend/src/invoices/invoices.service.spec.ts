@@ -22,6 +22,18 @@ describe("InvoicesService", () => {
     );
   });
 
+  it("filters by issue date in whole Bangkok days, only when a date is set", async () => {
+    const { prisma, invoices } = setup();
+    await invoices.list(advisor, { page: 1, pageSize: 20, from: "2026-10-01", to: "2026-10-31" });
+    await invoices.list(advisor, { page: 1, pageSize: 20, to: "2026-10-31" });
+    await invoices.list(advisor, { page: 1, pageSize: 20 });
+
+    const [both, toOnly, none] = prisma.invoice.findMany.mock.calls.map((call) => call[0].where);
+    expect(both.issuedAt).toEqual({ gte: new Date("2026-09-30T17:00:00.000Z"), lt: new Date("2026-10-31T17:00:00.000Z") });
+    expect(toOnly.issuedAt).toEqual({ lt: new Date("2026-10-31T17:00:00.000Z") });
+    expect(none.issuedAt).toBeUndefined();
+  });
+
   it("finds by invoice number, job number or plate", async () => {
     const { prisma, invoices } = setup();
     await invoices.list(advisor, { q: "INV-0007", page: 1, pageSize: 20 });

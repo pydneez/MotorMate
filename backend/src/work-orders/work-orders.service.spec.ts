@@ -471,7 +471,7 @@ describe("WorkOrdersService.list", () => {
     expect(where.AND[0].OR).toContainEqual({ number: 3 });
     expect(where.createdAt).toEqual({
       gte: new Date("2026-10-19T17:00:00.000Z"),
-      lte: new Date("2026-10-20T16:59:59.999Z"),
+      lt: new Date("2026-10-20T17:00:00.000Z"),
     });
   });
 
