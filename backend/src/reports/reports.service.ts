@@ -231,21 +231,37 @@ export class ReportsService {
   }
 
   /**
-   * The most common labour lines on invoiced jobs. Lines are typed freely, so they're grouped
-   * regardless of capitals and extra spaces; the label is one of the spellings used.
+   * The most performed services on invoiced jobs: lines picked from the price list, counted
+   * per service (named as the list names it today), then every custom line as one row.
    */
   private async labourLines(period: Period): Promise<ReportLabourRow[]> {
-    const rows = await this.prisma.$queryRaw<{ description: string; count: number; amount: Amount }[]>`
-      SELECT MIN(btrim(regexp_replace(s."description", '\\s+', ' ', 'g'))) AS "description",
-             COUNT(*)::int AS "count",
-             SUM(s."laborCost") AS "amount"
-      FROM "ServiceItem" s
-      JOIN "Invoice" v ON v."workOrderId" = s."workOrderId"
-      WHERE v."issuedAt" >= ${period.gte} AND v."issuedAt" < ${period.lt} AND v."status" <> 'VOID'
-      GROUP BY lower(btrim(regexp_replace(s."description", '\\s+', ' ', 'g')))
-      ORDER BY "count" DESC, "amount" DESC, 1
-      LIMIT ${TOP_PARTS}`;
-    return rows.map((row) => ({ description: row.description, count: Number(row.count), amount: amount(row.amount) }));
+    const invoicedLines: Prisma.ServiceItemWhereInput = { workOrder: { invoice: { is: this.invoiced(period) } } };
+    const [listed, custom] = await Promise.all([
+      this.prisma.serviceItem.groupBy({
+        by: ["catalogItemId"],
+        where: { ...invoicedLines, catalogItemId: { not: null } },
+        _count: { _all: true },
+        _sum: { laborCost: true },
+        orderBy: [{ _count: { catalogItemId: "desc" } }, { _sum: { laborCost: "desc" } }],
+        take: TOP_PARTS,
+      }),
+      this.prisma.serviceItem.aggregate({ where: { ...invoicedLines, catalogItemId: null }, _count: { _all: true }, _sum: { laborCost: true } }),
+    ]);
+    const services = await this.prisma.serviceCatalogItem.findMany({
+      where: { id: { in: listed.map((row) => row.catalogItemId!) } },
+      select: { id: true, name: true },
+    });
+    const names = new Map(services.map((service) => [service.id, service.name]));
+    const rows: ReportLabourRow[] = listed.map((row) => ({
+      description: names.get(row.catalogItemId!) ?? "(removed service)",
+      count: row._count._all,
+      amount: amount(row._sum.laborCost),
+      custom: false,
+    }));
+    if (custom._count._all > 0) {
+      rows.push({ description: "Other (custom lines)", count: custom._count._all, amount: amount(custom._sum.laborCost), custom: true });
+    }
+    return rows;
   }
 
   private async completedJobs(period: Period): Promise<{ completed: number; hours: number | null }> {

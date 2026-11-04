@@ -128,13 +128,18 @@ describe("reports", () => {
     await get(tokens.admin, "/reports/revenue?from=2025-01-01&to=2026-10-31").expect(400);
   });
 
-  it("groups labour lines however they're typed, and has no turnover without stock", async () => {
-    // Same work typed differently on another October job; 0 so the totals above don't move.
+  it("counts price-list services by service, custom lines together, and has no turnover without stock", async () => {
+    // A list service on another October job, renamed since; 0 so the totals above don't move.
     const job = await prisma.workOrder.findFirstOrThrow({ where: { number: 3 } });
-    await prisma.serviceItem.create({ data: { workOrderId: job.id, description: "  LABOUR   ", laborCost: 0 } });
+    const service = await prisma.serviceCatalogItem.create({ data: { name: "Oil change", category: "Maintenance", price: 0 } });
+    await prisma.serviceItem.create({ data: { workOrderId: job.id, description: "Oil change", laborCost: 0, catalogItemId: service.id } });
+    await prisma.serviceCatalogItem.update({ where: { id: service.id }, data: { name: "Oil & filter change" } });
 
     const { body } = await get(tokens.admin, `/reports/summary?${OCTOBER}`).expect(200);
-    expect(body.jobs.topLabour).toEqual([{ description: expect.stringMatching(/^labour$/i), count: 3, amount: 1500 }]);
+    expect(body.jobs.topLabour).toEqual([
+      { description: "Oil & filter change", count: 1, amount: 0, custom: false },
+      { description: "Other (custom lines)", count: 2, amount: 1500, custom: true },
+    ]);
     expect(body.parts).toEqual(expect.objectContaining({ costOfPartsUsed: 0, stockValueAtCost: 0, turnover: null }));
   });
 
