@@ -22,6 +22,7 @@ import {
 import type { z } from "zod";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
+import { phoneSearchFragment } from "../common/utils/phone-search";
 import { PrismaService } from "../prisma/prisma.service";
 import { serviceHistoryInclude, toServiceHistory, toVehicleSummary, vehicleSummaryInclude } from "./vehicle.mapper";
 
@@ -58,6 +59,9 @@ export class VehiclesService {
         ];
         const plate = normalizePlate(token);
         if (plate) or.push({ plateNormalized: { contains: plate } });
+        // The owner's phone — usually the first thing asked at the counter.
+        const phone = phoneSearchFragment(token);
+        if (phone) or.push({ customer: { phone: { contains: phone } } });
         return { OR: or };
       }),
     };
