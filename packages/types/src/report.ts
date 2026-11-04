@@ -112,7 +112,14 @@ export function reportCsvFilename(kind: ReportExport, range: ReportQuery): strin
 
 export type OpenWorkOrderStatus = Exclude<WorkOrderStatus, "COMPLETED" | "CANCELLED">;
 
-export type ReportPartRow = { id: string; sku: string; name: string; quantity: number; revenue: number };
+/**
+ * A part used on invoiced jobs in the period. costUsed is at today's unit cost (parts used
+ * keep the price charged, not the cost at the time); onHand is today's stock.
+ */
+export type ReportPartRow = { id: string; sku: string; name: string; quantity: number; revenue: number; costUsed: number; onHand: number };
+
+/** A labour line, grouped regardless of capitals and spacing (lines are typed freely). */
+export type ReportLabourRow = { description: string; count: number; amount: number };
 
 /** Invoiced amounts for a period — all of GET /reports/revenue, and part of the summary. */
 export type RevenueTotals = {
@@ -137,12 +144,18 @@ export type ReportSummary = {
     averageHoursToComplete: number | null;
     openByStatus: Record<OpenWorkOrderStatus, number>;
     mechanics: { id: string; name: string; completed: number; labour: number }[];
+    /** The 10 most common labour lines on invoiced jobs. */
+    topLabour: ReportLabourRow[];
   };
   parts: {
     topByQuantity: ReportPartRow[];
     topByRevenue: ReportPartRow[];
     stockValueAtCost: number;
     lowStockCount: number;
+    /** Parts used in the period at today's unit cost. */
+    costOfPartsUsed: number;
+    /** Inventory turnover for the period: costOfPartsUsed ÷ stockValueAtCost (null with no stock). */
+    turnover: number | null;
   };
   bookings: {
     total: number;

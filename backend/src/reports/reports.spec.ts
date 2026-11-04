@@ -9,7 +9,7 @@ import {
   ReportQuerySchema,
 } from "@motormate/types";
 import { csvCell, csvMoney, toCsv } from "./csv";
-import { fillSeries, noShowRate, reportPeriod, topParts } from "./reports.service";
+import { fillSeries, inventoryTurnover, noShowRate, reportPeriod, topParts } from "./reports.service";
 
 // Thursday 15 Jan 2026, 10:00 in Bangkok.
 const JAN_15 = new Date("2026-01-15T03:00:00.000Z");
@@ -122,12 +122,19 @@ describe("report arithmetic", () => {
 
   it("ranks parts with stable tie-breaks", () => {
     const rows = [
-      { id: "a", sku: "A", name: "Wiper", quantity: 2, revenue: 500 },
-      { id: "b", sku: "B", name: "Oil", quantity: 5, revenue: 500 },
-      { id: "c", sku: "C", name: "Bulb", quantity: 5, revenue: 100 },
+      { id: "a", sku: "A", name: "Wiper", quantity: 2, revenue: 500, costUsed: 300, onHand: 4 },
+      { id: "b", sku: "B", name: "Oil", quantity: 5, revenue: 500, costUsed: 320, onHand: 10 },
+      { id: "c", sku: "C", name: "Bulb", quantity: 5, revenue: 100, costUsed: 60, onHand: 0 },
     ];
     const { topByQuantity, topByRevenue } = topParts(rows);
     expect(topByQuantity.map((row) => row.id)).toEqual(["b", "c", "a"]);
     expect(topByRevenue.map((row) => row.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("works out inventory turnover as parts used at cost over stock value at cost", () => {
+    expect(inventoryTurnover(15000, 10000)).toBe(1.5);
+    expect(inventoryTurnover(1000, 3000)).toBe(0.33);
+    expect(inventoryTurnover(0, 5000)).toBe(0);
+    expect(inventoryTurnover(1000, 0)).toBeNull();
   });
 });
