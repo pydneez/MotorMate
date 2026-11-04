@@ -405,6 +405,8 @@ describe("WorkOrdersService labour and parts", () => {
       laborCost: 600,
       catalogItemId: null,
       addedById: "mech-sam",
+      listPrice: null,
+      priceReason: null,
     });
     expect(prisma.serviceItem.delete).toHaveBeenCalledWith({ where: { id: "li-1" } });
   });
@@ -425,15 +427,22 @@ describe("WorkOrdersService labour and parts", () => {
       await workOrders.addLabour(sam, "wo-1", { catalogItemId: "svc-oil" });
       expect(prisma.serviceCatalogItem.findFirst).toHaveBeenCalledWith({ where: { id: "svc-oil", isActive: true } });
       expect(prisma.serviceItem.create.mock.calls[0][0].data).toEqual(
-        expect.objectContaining({ description: "Oil change", laborCost: 450, catalogItemId: "svc-oil", addedById: "mech-sam" }),
+        expect.objectContaining({ description: "Oil change", laborCost: 450, catalogItemId: "svc-oil", addedById: "mech-sam", listPrice: null, priceReason: null }),
       );
     });
 
-    it("lets staff change the price, keeping the list price in the audit entry", async () => {
+    it("lets staff change the price with a reason, kept on the line and in the audit entry", async () => {
       const { prisma, workOrders } = listSetup();
-      await workOrders.addLabour(advisor, "wo-1", { catalogItemId: "svc-oil", laborCost: 400 });
-      expect(prisma.serviceItem.create.mock.calls[0][0].data.laborCost).toBe(400);
-      expect(prisma.auditLog.create.mock.calls[0][0].data.changes).toEqual(expect.objectContaining({ laborCost: 400, listPrice: 450 }));
+      await expect(workOrders.addLabour(advisor, "wo-1", { catalogItemId: "svc-oil", laborCost: 400 })).rejects.toThrow(BadRequestException);
+      expect(prisma.serviceItem.create).not.toHaveBeenCalled();
+
+      await workOrders.addLabour(advisor, "wo-1", { catalogItemId: "svc-oil", laborCost: 400, priceReason: "Regular customer" });
+      expect(prisma.serviceItem.create.mock.calls[0][0].data).toEqual(
+        expect.objectContaining({ laborCost: 400, listPrice: 450, priceReason: "Regular customer" }),
+      );
+      expect(prisma.auditLog.create.mock.calls[0][0].data.changes).toEqual(
+        expect.objectContaining({ laborCost: 400, listPrice: 450, priceReason: "Regular customer" }),
+      );
     });
 
     it("refuses a mechanic's different price, but accepts the list price sent back", async () => {

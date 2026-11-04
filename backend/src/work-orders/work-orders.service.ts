@@ -515,7 +515,8 @@ export class WorkOrdersService {
 
   /**
    * A labour line from the price list (name and price from the list) or a custom one. Staff
-   * may change a list price (the audit entry keeps the list price); a mechanic may not. Anyone
+   * may change a list price with a reason (kept on the line and in the audit entry); a mechanic
+   * may not. Anyone
    * who can edit the job may add a custom line — the advisor reviews a mechanic's at QC.
    */
   async addLabour(user: AuthUser, id: string, input: AddLabourData): Promise<WorkOrderDetail> {
@@ -523,7 +524,15 @@ export class WorkOrdersService {
     const line = await this.labourLine(user, input);
     await this.prisma.$transaction(async (tx) => {
       const item = await tx.serviceItem.create({
-        data: { workOrderId: id, description: line.description, laborCost: line.laborCost, catalogItemId: line.catalogItemId, addedById: user.id },
+        data: {
+          workOrderId: id,
+          description: line.description,
+          laborCost: line.laborCost,
+          catalogItemId: line.catalogItemId,
+          addedById: user.id,
+          listPrice: line.listPrice ?? null,
+          priceReason: line.priceReason ?? null,
+        },
       });
       await writeAudit(tx, {
         actorId: user.id,
@@ -535,7 +544,7 @@ export class WorkOrdersService {
           description: line.description,
           laborCost: line.laborCost,
           ...(line.catalogItemId ? { catalogItemId: line.catalogItemId } : {}),
-          ...(line.listPrice !== undefined ? { listPrice: line.listPrice } : {}),
+          ...(line.listPrice !== undefined ? { listPrice: line.listPrice, priceReason: line.priceReason } : {}),
         },
       });
     });
@@ -545,7 +554,7 @@ export class WorkOrdersService {
   private async labourLine(
     user: AuthUser,
     input: AddLabourData,
-  ): Promise<{ description: string; laborCost: number; catalogItemId: string | null; listPrice?: number }> {
+  ): Promise<{ description: string; laborCost: number; catalogItemId: string | null; listPrice?: number; priceReason?: string }> {
     if (!input.catalogItemId) return { description: input.description!, laborCost: input.laborCost!, catalogItemId: null };
 
     const service = await this.prisma.serviceCatalogItem.findFirst({ where: { id: input.catalogItemId, isActive: true } });
@@ -561,7 +570,11 @@ export class WorkOrdersService {
       const message = "List prices can only be changed by an advisor — add a custom line instead";
       throw new BadRequestException({ message, errors: { laborCost: [message] } });
     }
-    return { description: service.name, laborCost: input.laborCost, catalogItemId: service.id, listPrice };
+    if (!input.priceReason) {
+      const message = "Say why the price is different";
+      throw new BadRequestException({ message, errors: { priceReason: [message] } });
+    }
+    return { description: service.name, laborCost: input.laborCost, catalogItemId: service.id, listPrice, priceReason: input.priceReason };
   }
 
   async removeLabour(user: AuthUser, id: string, itemId: string): Promise<WorkOrderDetail> {
