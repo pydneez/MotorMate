@@ -81,9 +81,20 @@ export function NotesSection({ workOrder, canEdit }: { workOrder: WorkOrderDetai
   );
 }
 
-/** "Price list" or "Custom · added by Sam (mechanic)" under each labour line. */
+/** "Price list" (with any price change and its reason) or "Custom · added by Sam (mechanic)". */
 function LabourOrigin({ line }: { line: WorkOrderLabourLine }) {
-  if (line.catalogItemId) return <Badge tone="blue">Price list</Badge>;
+  if (line.catalogItemId) {
+    return (
+      <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-slate-500">
+        <Badge tone="blue">Price list</Badge>
+        {line.priceChange && (
+          <span>
+            changed from {formatTHB(line.priceChange.listPrice)} — {line.priceChange.reason}
+          </span>
+        )}
+      </span>
+    );
+  }
   const by = line.addedBy ? ` · added by ${line.addedBy.name}${line.addedBy.role === "MECHANIC" ? " (mechanic)" : ""}` : "";
   return <span className="text-xs text-slate-500">Custom{by}</span>;
 }
@@ -111,6 +122,7 @@ export function LabourSection({
   const [serviceId, setServiceId] = useState("");
   const [price, setPrice] = useState("");
   const chosen = services.find((service) => service.id === serviceId);
+  const priceChanged = canChangePrice && chosen !== undefined && price !== String(chosen.price);
 
   function switchMode(next: "list" | "custom") {
     action.setError(null);
@@ -135,8 +147,8 @@ export function LabourSection({
       mode === "list"
         ? {
             catalogItemId: serviceId,
-            // Sent only when staff changed it, so the API takes the list price otherwise.
-            ...(canChangePrice && chosen && price !== String(chosen.price) ? { laborCost: price } : {}),
+            // Sent only when staff changed it (with the required reason); otherwise the API takes the list price.
+            ...(priceChanged ? { laborCost: price, priceReason: values.priceReason } : {}),
           }
         : { description: values.description, laborCost: values.laborCost };
     const body = action.validate(AddLabourSchema, input);
@@ -224,7 +236,7 @@ export function LabourSection({
                   hint={
                     !canChangePrice
                       ? "Fixed price"
-                      : chosen && price !== String(chosen.price)
+                      : priceChanged && chosen
                         ? `List price ${formatTHB(chosen.price)}`
                         : undefined
                   }
@@ -240,6 +252,16 @@ export function LabourSection({
             <Button type="submit" variant="secondary" loading={action.submitting} className="sm:mt-6">
               <Plus className="h-4 w-4" aria-hidden /> Add
             </Button>
+            {mode === "list" && priceChanged && (
+              <Field
+                label="Reason for the new price"
+                name="priceReason"
+                maxLength={200}
+                placeholder="e.g. Regular customer discount"
+                error={action.fieldErrors.priceReason}
+                className="sm:col-span-3"
+              />
+            )}
           </form>
           {mode === "custom" && !canChangePrice && (
             <p className="mt-1 text-xs text-slate-500">The service advisor checks custom lines at quality check.</p>

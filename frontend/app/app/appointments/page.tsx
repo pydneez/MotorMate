@@ -155,7 +155,7 @@ async function CustomerAppointments({ role }: { role: Role }) {
   );
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-5xl space-y-6">
       <PageHeader
         title="My appointments"
         actions={
