@@ -7,14 +7,13 @@ import {
   bangkokParts,
   CancelAppointmentSchema,
   RescheduleAppointmentSchema,
-  SHOP,
   type AppointmentSummary,
   type Role,
 } from "@motormate/types";
 import { Modal } from "@/components/data/modal";
 import { ACTION_VARIANT, Alert, Button, Field, LinkButton } from "@/components/ui";
 import { formValues, useApi, useFormSubmit } from "@/lib/client";
-import { formatAppointmentTime } from "@/lib/format";
+import { formatAppointmentTime, formatThaiPhone } from "@/lib/format";
 import { AppointmentTimeFields } from "./appointment-time-fields";
 
 type Dialog = "reschedule" | "cancel" | "noShow" | null;
@@ -24,9 +23,17 @@ const SMALL = "px-2.5 py-1 text-xs";
 /**
  * The buttons that fit this appointment for this role (appointmentActions() from
  * packages/types — the API applies the same rules). Customers inside the 2-hour cut-off
- * see a "call us" note instead.
+ * see a "call us" note instead (`shopPhone`, from Settings → Shop details).
  */
-export function AppointmentActions({ appointment, role }: { appointment: AppointmentSummary; role: Role }) {
+export function AppointmentActions({
+  appointment,
+  role,
+  shopPhone,
+}: {
+  appointment: AppointmentSummary;
+  role: Role;
+  shopPhone?: string;
+}) {
   const router = useRouter();
   // So the check-in page can send the advisor back to the same tab.
   const searchParams = useSearchParams();
@@ -64,7 +71,7 @@ export function AppointmentActions({ appointment, role }: { appointment: Appoint
 
   if (actions.length === 0) {
     return isCustomer && upcoming ? (
-      <p className="text-xs text-slate-500">Less than 2 hours to go — to change it, call {SHOP.phone}.</p>
+      <p className="text-xs text-slate-500">Less than 2 hours to go — to change it, call {shopPhone ? formatThaiPhone(shopPhone) : "the shop"}.</p>
     ) : null;
   }
 

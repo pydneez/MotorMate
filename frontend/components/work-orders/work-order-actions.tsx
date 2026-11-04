@@ -53,6 +53,8 @@ export function StatusActions({ workOrder, user }: { workOrder: WorkOrderDetail;
     to === "CANCELLED" || to === "COMPLETED" || (workOrder.status === "QUALITY_CHECK" && to === "IN_PROGRESS");
   const dialog = confirming ? DIALOG[confirming] : undefined;
   const { totals } = workOrder;
+  // Custom labour priced by the mechanic: the advisor checks these before invoicing.
+  const toReview = workOrder.labour.filter((line) => !line.catalogItemId && line.addedBy?.role === "MECHANIC");
 
   return (
     <div className="flex flex-col items-end gap-2">
@@ -86,6 +88,20 @@ export function StatusActions({ workOrder, user }: { workOrder: WorkOrderDetail;
           {confirming === "COMPLETED" ? (
             <div className="space-y-2 text-sm text-slate-700">
               <p>Quality check passed? This issues the invoice and locks the job — labour and parts can&apos;t be changed afterwards.</p>
+              {toReview.length > 0 && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+                  <p className="font-medium text-amber-900">Check the prices the mechanic set:</p>
+                  <ul className="mt-1 space-y-0.5">
+                    {toReview.map((line) => (
+                      <li key={line.id} className="flex justify-between gap-3">
+                        <span>{line.description} <span className="text-xs text-slate-500">· {line.addedBy?.name}</span></span>
+                        <span>{formatTHB(line.laborCost)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1 text-xs text-amber-900">To change one, go back, remove it and add it again.</p>
+                </div>
+              )}
               <dl className="rounded-md bg-slate-50 p-3">
                 <div className="flex justify-between"><dt>Subtotal</dt><dd>{formatTHB(totals.subtotal)}</dd></div>
                 <div className="flex justify-between"><dt>VAT {Math.round(totals.vatRate * 100)}%</dt><dd>{formatTHB(totals.vat)}</dd></div>

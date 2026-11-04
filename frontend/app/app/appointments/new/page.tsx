@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Paginated, VehicleSummary } from "@motormate/types";
+import type { Paginated, ServiceCatalogEntry, VehicleSummary } from "@motormate/types";
 import { BookingForm } from "@/components/appointments/booking-form";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { requireSession, serverGet } from "@/lib/server";
@@ -8,7 +8,11 @@ import { requireSession, serverGet } from "@/lib/server";
 export default async function NewAppointmentPage() {
   const { user } = await requireSession();
   const isCustomer = user.role === "CUSTOMER";
-  const vehicles = isCustomer ? (await serverGet<Paginated<VehicleSummary>>("/vehicles?pageSize=100")).items : null;
+  const [vehicles, services] = await Promise.all([
+    isCustomer ? serverGet<Paginated<VehicleSummary>>("/vehicles?pageSize=100").then((page) => page.items) : Promise.resolve(null),
+    // Customers get only the bookable ones (the API decides).
+    serverGet<ServiceCatalogEntry[]>("/services"),
+  ]);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -25,7 +29,7 @@ export default async function NewAppointmentPage() {
             </Link>
           </EmptyState>
         ) : (
-          <BookingForm ownVehicles={vehicles} />
+          <BookingForm ownVehicles={vehicles} services={services} />
         )}
       </Card>
     </div>

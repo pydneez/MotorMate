@@ -10,8 +10,10 @@ import {
   type AppointmentView,
   type Paginated,
   type Role,
+  type ShopDetails,
 } from "@motormate/types";
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
+import { BookedServices, visitNote } from "@/components/appointments/booked-services";
 import { AppointmentFilters } from "@/components/appointments/appointment-filters";
 import { AppointmentStatusBadge } from "@/components/appointments/appointment-status-badge";
 import { AppointmentTabs } from "@/components/appointments/appointment-tabs";
@@ -106,12 +108,13 @@ async function StaffAppointments({ role, searchParams }: Props & { role: Role })
                   </p>
                 </div>
                 <div className="text-slate-700">
-                  {appointment.reason}
+                  {visitNote(appointment)}
                   {appointment.workOrder && (
                     <Link href={`/app/work-orders/${appointment.workOrder.id}`} className="ml-1 text-xs text-blue-700 hover:underline">
                       {formatWorkOrderNumber(appointment.workOrder.number)} →
                     </Link>
                   )}
+                  <BookedServices services={appointment.services} />
                 </div>
                 {/* Own row until the screen is wide enough for a fifth column. */}
                 <div className="md:col-span-4 xl:col-span-1">
@@ -128,9 +131,10 @@ async function StaffAppointments({ role, searchParams }: Props & { role: Role })
 }
 
 async function CustomerAppointments({ role }: { role: Role }) {
-  const [upcoming, past] = await Promise.all([
+  const [upcoming, past, shop] = await Promise.all([
     serverGet<Paginated<AppointmentSummary>>("/appointments?view=upcoming&pageSize=20"),
     serverGet<Paginated<AppointmentSummary>>("/appointments?view=past&pageSize=10"),
+    serverGet<ShopDetails>("/settings/shop"),
   ]);
 
   const row = (appointment: AppointmentSummary) => (
@@ -138,12 +142,14 @@ async function CustomerAppointments({ role }: { role: Role }) {
       <div>
         <p className="font-medium">{formatAppointmentTime(appointment.scheduledAt)}</p>
         <p className="text-slate-600">
-          {appointment.vehicle.make} {appointment.vehicle.model} · {appointment.vehicle.plate} · {appointment.reason}
+          {appointment.vehicle.make} {appointment.vehicle.model} · {appointment.vehicle.plate}
+          {visitNote(appointment) && <> · {visitNote(appointment)}</>}
         </p>
+        <BookedServices services={appointment.services} />
       </div>
       <div className="flex flex-col items-end gap-2">
         <AppointmentStatusBadge status={appointment.status} scheduledAt={appointment.scheduledAt} forCustomer />
-        <AppointmentActions appointment={appointment} role={role} />
+        <AppointmentActions appointment={appointment} role={role} shopPhone={shop.phone} />
       </div>
     </li>
   );

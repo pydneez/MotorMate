@@ -15,6 +15,7 @@ import {
   Menu,
   Package,
   Receipt,
+  Settings,
   UserCircle,
   UserCog,
   Users,
@@ -34,6 +35,7 @@ const ICONS: Record<string, LucideIcon> = {
   invoices: Receipt,
   reports: BarChart3,
   staff: UserCog,
+  settings: Settings,
 };
 
 function NavLinks({ user, onNavigate }: { user: AuthUser; onNavigate?: () => void }) {

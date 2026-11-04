@@ -7,13 +7,16 @@ import {
   AddLabourSchema,
   AddPartSchema,
   AddRecommendationSchema,
+  groupServices,
   UpdateWorkOrderDetailsSchema,
   type InventoryItemSummary,
+  type ServiceCatalogEntry,
+  type WorkOrderLabourLine,
   type Paginated,
   type WorkOrderDetail,
 } from "@motormate/types";
 import { Modal } from "@/components/data/modal";
-import { Alert, Button, Card, Field, TextAreaField } from "@/components/ui";
+import { Alert, Badge, Button, Card, Field, SelectField, TextAreaField } from "@/components/ui";
 import { formValues, useApi, useFormSubmit } from "@/lib/client";
 import { formatDate, formatKm, formatTHB } from "@/lib/format";
 
@@ -78,16 +81,73 @@ export function NotesSection({ workOrder, canEdit }: { workOrder: WorkOrderDetai
   );
 }
 
-/** Labour lines with an inline add form. */
-export function LabourSection({ workOrder, canEdit }: { workOrder: WorkOrderDetail; canEdit: boolean }) {
+/** "Price list" or "Custom · added by Sam (mechanic)" under each labour line. */
+function LabourOrigin({ line }: { line: WorkOrderLabourLine }) {
+  if (line.catalogItemId) return <Badge tone="blue">Price list</Badge>;
+  const by = line.addedBy ? ` · added by ${line.addedBy.name}${line.addedBy.role === "MECHANIC" ? " (mechanic)" : ""}` : "";
+  return <span className="text-xs text-slate-500">Custom{by}</span>;
+}
+
+/**
+ * Labour lines, added from the price list (name and price filled in) or as a custom line.
+ * Staff may change a list price; a mechanic can't (the API refuses it too) — their custom
+ * lines are checked by the advisor at QC.
+ */
+export function LabourSection({
+  workOrder,
+  canEdit,
+  services,
+  canChangePrice,
+}: {
+  workOrder: WorkOrderDetail;
+  canEdit: boolean;
+  /** Active price-list services (empty when the user can't edit). */
+  services: ServiceCatalogEntry[];
+  canChangePrice: boolean;
+}) {
   const action = useWorkOrderCall(workOrder.id);
   const formRef = useRef<HTMLFormElement>(null);
+  const [mode, setMode] = useState<"list" | "custom">(services.length > 0 ? "list" : "custom");
+  const [serviceId, setServiceId] = useState("");
+  const [price, setPrice] = useState("");
+  const chosen = services.find((service) => service.id === serviceId);
+
+  function switchMode(next: "list" | "custom") {
+    action.setError(null);
+    action.setFieldErrors({});
+    setMode(next);
+  }
+
+  function pick(id: string) {
+    setServiceId(id);
+    const service = services.find((s) => s.id === id);
+    setPrice(service ? String(service.price) : "");
+  }
 
   async function onAdd(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const body = action.validate(AddLabourSchema, formValues(event.currentTarget));
-    if (body && (await action.send("/labour", "POST", body))) formRef.current?.reset();
+    if (mode === "list" && !serviceId) {
+      action.setFieldErrors({ catalogItemId: "Choose a service" });
+      return;
+    }
+    const values = formValues(event.currentTarget);
+    const input =
+      mode === "list"
+        ? {
+            catalogItemId: serviceId,
+            // Sent only when staff changed it, so the API takes the list price otherwise.
+            ...(canChangePrice && chosen && price !== String(chosen.price) ? { laborCost: price } : {}),
+          }
+        : { description: values.description, laborCost: values.laborCost };
+    const body = action.validate(AddLabourSchema, input);
+    if (body && (await action.send("/labour", "POST", body))) {
+      formRef.current?.reset();
+      pick("");
+    }
   }
+
+  const tab = (active: boolean) =>
+    `rounded-full px-3 py-1 ${active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`;
 
   return (
     <Card className="p-4">
@@ -98,8 +158,11 @@ export function LabourSection({ workOrder, canEdit }: { workOrder: WorkOrderDeta
         <ul className="divide-y divide-slate-100 text-sm">
           {workOrder.labour.map((line) => (
             <li key={line.id} className="flex items-center justify-between gap-3 py-2">
-              <span>{line.description}</span>
-              <span className="flex items-center gap-2">
+              <span className="min-w-0">
+                <span className="block">{line.description}</span>
+                <LabourOrigin line={line} />
+              </span>
+              <span className="flex shrink-0 items-center gap-2">
                 {formatTHB(line.laborCost)}
                 {canEdit && (
                   <button
@@ -116,13 +179,72 @@ export function LabourSection({ workOrder, canEdit }: { workOrder: WorkOrderDeta
         </ul>
       )}
       {canEdit && (
-        <form ref={formRef} onSubmit={onAdd} noValidate className="mt-3 grid gap-2 sm:grid-cols-[1fr_9rem_auto] sm:items-start">
-          <Field label="Work" name="description" placeholder="e.g. Replace front pads" error={action.fieldErrors.description} />
-          <Field label="Cost (฿)" name="laborCost" type="number" inputMode="decimal" step="0.01" min={0} error={action.fieldErrors.laborCost} />
-          <Button type="submit" variant="secondary" loading={action.submitting} className="sm:mt-6">
-            <Plus className="h-4 w-4" aria-hidden /> Add
-          </Button>
-        </form>
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <div className="mb-2 flex gap-1 text-xs" role="tablist" aria-label="Add labour">
+            {services.length > 0 && (
+              <button type="button" role="tab" aria-selected={mode === "list"} onClick={() => switchMode("list")} className={tab(mode === "list")}>
+                From price list
+              </button>
+            )}
+            <button type="button" role="tab" aria-selected={mode === "custom"} onClick={() => switchMode("custom")} className={tab(mode === "custom")}>
+              Custom line
+            </button>
+          </div>
+          <form ref={formRef} onSubmit={onAdd} noValidate className="grid gap-2 sm:grid-cols-[1fr_9rem_auto] sm:items-start">
+            {mode === "list" ? (
+              <>
+                <SelectField
+                  label="Service"
+                  name="catalogItemId"
+                  value={serviceId}
+                  onChange={(event) => pick(event.target.value)}
+                  error={action.fieldErrors.catalogItemId}
+                >
+                  <option value="">Choose a service…</option>
+                  {groupServices(services).map(({ category, services: group }) => (
+                    <optgroup key={category} label={category}>
+                      {group.map((service) => (
+                        <option key={service.id} value={service.id}>
+                          {service.name} — {formatTHB(service.price)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </SelectField>
+                <Field
+                  label="Price (฿)"
+                  name="laborCost"
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min={0}
+                  value={price}
+                  onChange={(event) => setPrice(event.target.value)}
+                  readOnly={!canChangePrice}
+                  hint={
+                    !canChangePrice
+                      ? "Fixed price"
+                      : chosen && price !== String(chosen.price)
+                        ? `List price ${formatTHB(chosen.price)}`
+                        : undefined
+                  }
+                  error={action.fieldErrors.laborCost}
+                />
+              </>
+            ) : (
+              <>
+                <Field label="Work" name="description" placeholder="e.g. Free up seized caliper" error={action.fieldErrors.description} />
+                <Field label="Cost (฿)" name="laborCost" type="number" inputMode="decimal" step="0.01" min={0} error={action.fieldErrors.laborCost} />
+              </>
+            )}
+            <Button type="submit" variant="secondary" loading={action.submitting} className="sm:mt-6">
+              <Plus className="h-4 w-4" aria-hidden /> Add
+            </Button>
+          </form>
+          {mode === "custom" && !canChangePrice && (
+            <p className="mt-1 text-xs text-slate-500">The service advisor checks custom lines at quality check.</p>
+          )}
+        </div>
       )}
       {action.error && <div className="mt-2"><Alert>{action.error}</Alert></div>}
     </Card>

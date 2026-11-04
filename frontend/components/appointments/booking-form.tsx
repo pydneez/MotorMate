@@ -3,27 +3,34 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Car, X } from "lucide-react";
-import { CreateAppointmentSchema, type AppointmentSummary, type VehicleSummary } from "@motormate/types";
+import { CreateAppointmentSchema, groupServices, type AppointmentSummary, type ServiceCatalogEntry, type VehicleSummary } from "@motormate/types";
 import { Alert, Button, LinkButton, SelectField, TextAreaField } from "@/components/ui";
 import { VehiclePicker } from "@/components/work-orders/check-in-form";
 import { formValues, useApi, useFormSubmit } from "@/lib/client";
-import { fullName } from "@/lib/format";
+import { formatTHB, fullName } from "@/lib/format";
 import { AppointmentTimeFields } from "./appointment-time-fields";
 
 /**
  * Book an appointment. Customers pick one of their own vehicles (it becomes a request);
- * staff search for any vehicle (phone bookings — confirmed straight away).
+ * staff search for any vehicle (phone bookings — confirmed straight away). Services from the
+ * price list can be ticked (customers see the bookable ones), a note added, or both.
  */
-export function BookingForm({ ownVehicles }: { ownVehicles: VehicleSummary[] | null }) {
+export function BookingForm({ ownVehicles, services }: { ownVehicles: VehicleSummary[] | null; services: ServiceCatalogEntry[] }) {
   const router = useRouter();
   const callApi = useApi();
   const { fieldErrors, error, submitting, validate, submit } = useFormSubmit();
   const [picked, setPicked] = useState<VehicleSummary | null>(null);
   const isStaff = ownVehicles === null;
+  const [ticked, setTicked] = useState<string[]>([]);
+  const estimate = services.filter((service) => ticked.includes(service.id)).reduce((sum, service) => sum + service.price, 0);
+
+  function toggle(id: string, on: boolean) {
+    setTicked((current) => (on ? [...current, id] : current.filter((value) => value !== id)));
+  }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const values = formValues(event.currentTarget);
+    const values = { ...formValues(event.currentTarget), serviceIds: ticked };
     const body = validate(CreateAppointmentSchema, isStaff ? { ...values, vehicleId: picked?.id ?? "" } : values);
     if (!body) return;
     const created = await submit(() => callApi<AppointmentSummary>("/appointments", { method: "POST", body }));
@@ -71,10 +78,39 @@ export function BookingForm({ ownVehicles }: { ownVehicles: VehicleSummary[] | n
       )}
 
       <AppointmentTimeFields errors={fieldErrors} />
+      {services.length > 0 && (
+        <fieldset>
+          <legend className="mb-1 block text-sm font-medium text-slate-700">Services</legend>
+          <div className="space-y-3 rounded-md border border-slate-200 p-3">
+            {groupServices(services).map(({ category, services: group }) => (
+              <div key={category}>
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{category}</p>
+                {group.map((service) => (
+                  <label key={service.id} className="flex items-center justify-between gap-3 py-1 text-sm">
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={ticked.includes(service.id)}
+                        onChange={(event) => toggle(service.id, event.target.checked)}
+                      />
+                      {service.name}
+                    </span>
+                    <span className="text-slate-600">from {formatTHB(service.price)}</span>
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+          {fieldErrors.serviceIds && <p className="mt-1 text-xs text-red-600">{fieldErrors.serviceIds}</p>}
+          <p className="mt-1 text-xs text-slate-500">
+            {ticked.length > 0 ? `Estimate ${formatTHB(estimate)} excl. VAT, parts extra. ` : ""}The final price is set after we inspect the car.
+          </p>
+        </fieldset>
+      )}
       <TextAreaField
-        label="What's the visit for?"
+        label={services.length > 0 ? "Anything else? (optional if you ticked a service)" : "What's the visit for?"}
         name="reason"
-        placeholder="e.g. Brake inspection, oil change, strange noise when turning"
+        placeholder="e.g. Strange noise when turning"
         error={fieldErrors.reason}
       />
 
