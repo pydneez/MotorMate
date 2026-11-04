@@ -228,6 +228,11 @@ schema before calling the API. List search and paging live in the URL.
   - Advisors/admins can make any move. A mechanic can only change jobs **assigned to them**
     (notes, labour, parts, status) and never makes the COMPLETED (QC sign-off) or CANCELLED
     moves. Other mechanics can view. Customers see status on their vehicle page only.
+  - **Finding the car at the counter:** vehicle and work-order search also match the owner's
+    phone (`phoneSearchFragment`). A phone-like search with no car offers the walk-in form
+    with the number filled in (`?phone=`); the walk-in form, on a phone match, lists that
+    customer's cars with "Check in this car" (`?vehicleId=`). Checking in a booking for another
+    day shows a warning; Back returns to the appointments tab it came from (`&from=`).
   - Check-in: mileage must be ≥ the vehicle's recorded mileage, and a vehicle can have only
     one open work order. Completed/cancelled jobs can't be changed at all.
   - Walk-in check-in (`POST /work-orders/walk-in`, page `/app/work-orders/new?mode=walk-in`,
@@ -332,8 +337,11 @@ schema before calling the API. List search and paging live in the URL.
     Revenue only — no profit: parts used keep the price charged, not the cost at the time.
   - **Repeat customers:** of the customers with a job completed in the period, those with at
     least two completed jobs by its end (by the vehicle's current owner).
-  - Not built: "most-performed services" — labour lines are free text, so it needs the
-    price list (parked idea below) first.
+  - **Most common labour lines** stand in for "most-performed services": labour lines are free
+    text, so they're grouped by wording (case and spacing ignored), with count and amount.
+    A price list (backlog) would make this exact.
+  - **Inventory turnover** for the period = parts used at today's unit cost ÷ stock value at
+    cost today (no cost snapshot on parts used); the parts tables show used vs on hand.
   - CSVs are UTF-8 with BOM (Thai text in Excel), CRLF; cells starting `= + - @` get a `'` so
     Excel won't run them. The page downloads with the bearer token (fetch → blob).
   - `/app` (admin) shows six stat cards — open work orders, today's appointments, requests to
@@ -463,11 +471,13 @@ the build has followed so far — keep them.
 / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments, reminder
 engine), reports (PR #21), list filters + sorting (PR #22), status buttons / colours /
 appointment filters (PR #23), customer Visits list (PR #24; the customer-side "My visits",
-135, was dropped — invoices + vehicle history cover it). **Feature work is done:** the price
-list (#5, 136–140) is "future work" in the final document. Step 10 — demo readiness (demo
-seed, wider smoke test, end-to-end hand-off; Jira 158–161) — is on `chore/demo-readiness`.
-Next: the dev-account rehearsal (160), the final document (Nov 6–7), demo account deploy
-(Nov 8–10, with `seed.sh --demo`), code freeze Nov 10.
+135, was dropped — invoices + vehicle history cover it). Step 10 — demo readiness (demo seed,
+wider smoke test, end-to-end hand-off; Jira 158–161) — is on `chore/demo-readiness`;
+Step 11 — check-in journey fixes + inventory turnover / labour lines in Reports (162–164) — is
+stacked on it as `feat/check-in-journey`. **Next:** Step 12, the fixed-price service list in
+an admin settings page (`docs/backlog.md`, Jira 136–140) — plan first. Then the dev-account
+rehearsal (160), the final document, demo account deploy (Nov 8–10, `seed.sh --demo`), code
+freeze Nov 10.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -512,8 +522,8 @@ design needs a one-line "why". So far: no domain → HTTPS from API Gateway's ce
 NextAuth + our own JWT; private subnets + NAT → public subnets with locked-down security
 groups (NAT too expensive); SES → SNS email (SES denied); Multi-AZ only in the demo
 account (cost); only `LabRole` exists, so no least-privilege IAM roles (documented limit);
-reports show revenue, not profit, and no "most-performed services" (no cost snapshot on
-parts used; labour lines are free text until a price list exists); no customer "My visits"
+reports show revenue, not profit (no cost snapshot on parts used), and "most-performed
+services" as the most common labour lines (free text until a price list exists); no customer "My visits"
 page (My Invoices + each vehicle's service history already show it; staff get a Visits list
 per customer); the fixed-price service list is future work (too big for the time left).
 
@@ -635,10 +645,9 @@ Values that must agree **across files**:
 ## Parked ideas (nice-to-have, not scheduled)
 
 Agreed as good ideas, deliberately not built so the MVP stays on schedule. Don't build
-without the team deciding first. **`docs/backlog.md`** has the detailed build notes for what's
-left: customer visit history (staff and customer side) and fixed prices for routine services
-(extends the price list below). Items 1–3 there (status buttons, button colours, appointment
-filters) are built.
+without the team deciding first. **`docs/backlog.md`** has the detailed build notes for
+what's left: fixed prices for routine services (extends the price list below). Built items
+are removed from it.
 
 - **Labour price list (hybrid pricing).** Today labour lines are free-typed amounts entered
   by staff or the assigned mechanic (common in small garages, but anyone can type any
