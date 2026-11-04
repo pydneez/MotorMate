@@ -57,7 +57,8 @@ export type InvoiceDetail = InvoiceSummary & {
   vehicle: InvoiceSummary["vehicle"] & { vin: string };
   mileageIn: number;
   workPerformed: string | null;
-  labour: WorkOrderLabourLine[];
+  /** As printed — who added a line or whether it came from the price list stays on the job. */
+  labour: Pick<WorkOrderLabourLine, "id" | "description" | "laborCost">[];
   parts: WorkOrderPartLine[];
   subtotal: number;
   vatRate: number;

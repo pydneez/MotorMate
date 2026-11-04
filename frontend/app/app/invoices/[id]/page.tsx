@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { formatInvoiceNumber, formatWorkOrderNumber, SHOP, type InvoiceDetail } from "@motormate/types";
+import { formatInvoiceNumber, formatWorkOrderNumber, shopAddressLines, type InvoiceDetail, type ShopDetails } from "@motormate/types";
 import { InvoiceActions } from "@/components/invoices/invoice-actions";
 import { InvoiceStatusBadge } from "@/components/invoices/invoice-status-badge";
 import { Card, PageHeader } from "@/components/ui";
@@ -9,7 +9,10 @@ import { requireSession, serverGet } from "@/lib/server";
 /** The printable invoice. The app shell and buttons are hidden when printing. */
 export default async function InvoicePage({ params }: { params: { id: string } }) {
   const { user } = await requireSession();
-  const invoice = await serverGet<InvoiceDetail>(`/invoices/${params.id}`);
+  const [invoice, shop] = await Promise.all([
+    serverGet<InvoiceDetail>(`/invoices/${params.id}`),
+    serverGet<ShopDetails>("/settings/shop"),
+  ]);
   const isStaff = user.role === "ADMIN" || user.role === "ADVISOR";
   const number = formatInvoiceNumber(invoice.number);
   const { vehicle, customer } = invoice;
@@ -38,11 +41,15 @@ export default async function InvoicePage({ params }: { params: { id: string } }
       <Card className="p-6 text-sm sm:p-8 print:border-0 print:p-0 print:shadow-none">
         <div className="flex flex-wrap justify-between gap-6 border-b border-slate-200 pb-6">
           <div>
-            <p className="text-lg font-bold">{SHOP.name}</p>
-            {SHOP.address.map((line) => (
+            <p className="text-lg font-bold">{shop.name}</p>
+            {shopAddressLines(shop).map((line) => (
               <p key={line} className="text-slate-600">{line}</p>
             ))}
-            <p className="text-slate-600">Tel. {SHOP.phone} · Tax ID {SHOP.taxId}</p>
+            <p className="text-slate-600">
+              Tel. {formatThaiPhone(shop.phone)}
+              {shop.email && <> · {shop.email}</>}
+            </p>
+            <p className="text-slate-600">Tax ID {shop.taxId}</p>
           </div>
           <div className="sm:text-right">
             <p className="text-lg font-semibold">Invoice</p>

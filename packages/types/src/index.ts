@@ -12,3 +12,4 @@ export * from "./appointment";
 export * from "./reminder";
 export * from "./inventory";
 export * from "./report";
+export * from "./settings";

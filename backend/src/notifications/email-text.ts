@@ -1,4 +1,4 @@
-import { SHOP } from "@motormate/types";
+import { DEFAULT_SHOP_DETAILS, formatThaiPhone, SHOP, shopAddressLines, type ShopDetails } from "@motormate/types";
 
 /**
  * The customer emails, as plain text (SNS email can't do HTML, so no bold or links — the
@@ -40,7 +40,9 @@ function appointmentTime(value: Date | string): string {
 export const SUBJECT_PREFIX = "[MOTORMATE]";
 const subjectLine = (text: string) => `${SUBJECT_PREFIX} ${text}`;
 
-const signature = () => `${SHOP.name} 🔧\n${SHOP.address.join(", ")}\nTel: ${SHOP.phone}\nHours: ${SHOP.hours.label}`;
+/** Name, address and phone come from Settings (callers pass SettingsService.shop()); hours stay in SHOP. */
+const signature = (shop: ShopDetails) =>
+  `${shop.name} 🔧\n${shopAddressLines(shop).join(", ")}\nTel: ${formatThaiPhone(shop.phone)}\nHours: ${SHOP.hours.label}`;
 
 export type ReminderLine = {
   vehicle: { make: string; model: string; plate: string; province: string };
@@ -51,7 +53,12 @@ export type ReminderLine = {
 };
 
 /** One email per customer per run: every due item, grouped by vehicle. */
-export function serviceReminderEmail(firstName: string, lines: ReminderLine[], followUp: boolean): { subject: string; body: string } {
+export function serviceReminderEmail(
+  firstName: string,
+  lines: ReminderLine[],
+  followUp: boolean,
+  shop: ShopDetails = DEFAULT_SHOP_DETAILS,
+): { subject: string; body: string } {
   const vehicles = [...new Set(lines.map((line) => `${line.vehicle.make} ${line.vehicle.model}`))];
   const subject = subjectLine(
     followUp ? `Reminder: your ${vehicles.join(" and ")} is still due for service` : `Service coming up for your ${vehicles.join(" and ")}`,
@@ -79,8 +86,8 @@ export function serviceReminderEmail(firstName: string, lines: ReminderLine[], f
       ? "A quick reminder — this service we recommended is still due:"
       : "At your last visit we recommended the following service, and it's coming up:",
     sections.join("\n\n"),
-    `Book a visit online: ${siteUrl()}/app/appointments/new\nor call us on ${SHOP.phone}.`,
-    signature(),
+    `Book a visit online: ${siteUrl()}/app/appointments/new\nor call us on ${formatThaiPhone(shop.phone)}.`,
+    signature(shop),
   ].join("\n\n");
   return { subject, body };
 }
@@ -91,7 +98,9 @@ export function appointmentEmail(
   kind: AppointmentEmailKind,
   firstName: string,
   appointment: { scheduledAt: Date | string; reason: string; vehicle: { make: string; model: string; plate: string } },
+  shop: ShopDetails = DEFAULT_SHOP_DETAILS,
 ): { subject: string; body: string } {
+  const phone = formatThaiPhone(shop.phone);
   const when = appointmentTime(appointment.scheduledAt);
   const car = `${appointment.vehicle.make} ${appointment.vehicle.model}`;
   const subjects: Record<AppointmentEmailKind, string> = {
@@ -110,7 +119,7 @@ export function appointmentEmail(
   const details = `  ${when}\n  ${car} (${appointment.vehicle.plate})\n  ${appointment.reason}`;
   const outro =
     kind === "cancelled"
-      ? `To book another time: ${siteUrl()}/app/appointments/new or call ${SHOP.phone}.`
-      : `Need to change it? Visit ${siteUrl()}/app/appointments, or call ${SHOP.phone} if it's less than 2 hours away.`;
-  return { subject: subjectLine(subjects[kind]), body: [`Hello ${firstName},`, intros[kind], details, outro, signature()].join("\n\n") };
+      ? `To book another time: ${siteUrl()}/app/appointments/new or call ${phone}.`
+      : `Need to change it? Visit ${siteUrl()}/app/appointments, or call ${phone} if it's less than 2 hours away.`;
+  return { subject: subjectLine(subjects[kind]), body: [`Hello ${firstName},`, intros[kind], details, outro, signature(shop)].join("\n\n") };
 }

@@ -1,8 +1,9 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
   bangkokDateTime,
   bangkokParts,
+  DEFAULT_SHOP_DETAILS,
   estimateMileage,
   normalizePlate,
   REMINDER_FOLLOW_UP_DAYS,
@@ -29,6 +30,7 @@ import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { appointmentEmail, serviceReminderEmail } from "../notifications/email-text";
 import { NotifierService } from "../notifications/notifier.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 
 export type CloseRecommendationData = z.output<typeof CloseRecommendationSchema>;
 
@@ -71,6 +73,8 @@ export class RemindersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifier: NotifierService,
+    // Optional so unit tests can build the service without it (emails then use the defaults).
+    @Optional() private readonly settings?: SettingsService,
   ) {}
 
   // ── Staff views ────────────────────────────────────────────────────────────
@@ -202,6 +206,7 @@ export class RemindersService {
       (isFirst ? group.first : group.followUp).push(item);
       groups.set(row.vehicle.customer.id, group);
     }
+    const shop = (await this.settings?.shop()) ?? DEFAULT_SHOP_DETAILS;
     for (const { first, followUp } of groups.values()) {
       const items = [...first, ...followUp];
       const customer = items[0].row.vehicle.customer;
@@ -215,6 +220,7 @@ export class RemindersService {
           estimatedKm: estimate.km,
         })),
         first.length === 0,
+        shop,
       );
       const result = await this.notifier.send({
         type: "SERVICE_REMINDER",
@@ -248,7 +254,7 @@ export class RemindersService {
       },
     });
     for (const appointment of appointments) {
-      const { subject, body } = appointmentEmail("reminder", appointment.customer.firstName, appointment);
+      const { subject, body } = appointmentEmail("reminder", appointment.customer.firstName, appointment, shop);
       const result = await this.notifier.send({
         type: "APPOINTMENT_REMINDER",
         customer: appointment.customer,

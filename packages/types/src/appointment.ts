@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { checkDateRange, dateRangeFields, ListQuerySchema, textWithLetters } from "./common";
+import { checkDateRange, dateRangeFields, ListQuerySchema } from "./common";
 import type { Role } from "./role";
 import { SHOP } from "./shop";
 
@@ -128,14 +128,25 @@ function checkBookingTime(value: { date: string; time: string }, ctx: z.Refineme
   if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["time"], message: error });
 }
 
-/** Customers book for their own vehicle (→ Requested); staff for anyone's (→ Confirmed). */
+/**
+ * Customers book for their own vehicle (→ Requested); staff for anyone's (→ Confirmed).
+ * They pick services from the price list and/or describe the visit — at least one of the two.
+ */
 export const CreateAppointmentSchema = z
   .object({
     vehicleId: z.string().min(1, "Choose a vehicle"),
     ...timeFields,
-    reason: textWithLetters("Reason", { max: 500, required: "Tell us what the visit is for" }),
+    serviceIds: z.array(z.string().trim().min(1)).max(10, "Pick at most 10 services").default([]),
+    reason: z.string().trim().max(500, "Keep it under 500 characters").default(""),
   })
-  .superRefine(checkBookingTime);
+  .superRefine(checkBookingTime)
+  .superRefine((value, ctx) => {
+    if (!value.reason && value.serviceIds.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "Pick a service or tell us what the visit is for" });
+    } else if (value.reason && !/\p{L}/u.test(value.reason)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "Describe the visit in words" });
+    }
+  });
 export type CreateAppointmentInput = z.input<typeof CreateAppointmentSchema>;
 
 export const RescheduleAppointmentSchema = z.object(timeFields).superRefine(checkBookingTime);
@@ -186,6 +197,8 @@ export type AppointmentSummary = {
   vehicle: { id: string; plate: string; province: string; make: string; model: string; year: number };
   /** The work order it was checked in as. */
   workOrder: { id: string; number: number } | null;
+  /** Services picked from the price list, with the price at booking time (excl. VAT). */
+  services: { id: string; name: string; price: number }[];
   createdAt: string;
 };
 

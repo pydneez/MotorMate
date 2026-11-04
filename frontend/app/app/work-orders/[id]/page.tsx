@@ -5,6 +5,7 @@ import {
   isClosedStatus,
   WORK_ORDER_STATUS_LABEL,
   type MechanicOption,
+  type ServiceCatalogEntry,
   type WorkOrderDetail,
 } from "@motormate/types";
 import { Card, PageHeader } from "@/components/ui";
@@ -25,6 +26,7 @@ export default async function WorkOrderPage({ params }: { params: { id: string }
   ]);
   const closed = isClosedStatus(workOrder.status);
   const canEdit = !closed && (isStaff || workOrder.mechanic?.id === user.id);
+  const services = canEdit ? await serverGet<ServiceCatalogEntry[]>("/services") : [];
   const { vehicle, totals } = workOrder;
 
   return (
@@ -72,7 +74,7 @@ export default async function WorkOrderPage({ params }: { params: { id: string }
             <p className="whitespace-pre-line text-slate-800">{workOrder.complaint}</p>
           </Card>
           <NotesSection workOrder={workOrder} canEdit={canEdit} />
-          <LabourSection workOrder={workOrder} canEdit={canEdit} />
+          <LabourSection workOrder={workOrder} canEdit={canEdit} services={services} canChangePrice={isStaff} />
           <PartsSection workOrder={workOrder} canEdit={canEdit} />
           <RecommendationsSection workOrder={workOrder} canEdit={canEdit} />
         </div>

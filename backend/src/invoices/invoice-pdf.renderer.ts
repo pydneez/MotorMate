@@ -5,8 +5,10 @@ import {
   formatInvoiceNumber,
   formatThaiPhone,
   formatWorkOrderNumber,
-  SHOP,
+  DEFAULT_SHOP_DETAILS,
+  shopAddressLines,
   type InvoiceDetail,
+  type ShopDetails,
 } from "@motormate/types";
 
 /**
@@ -35,12 +37,13 @@ const formatTHB = (amount: number) =>
   `฿${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const formatKm = (km: number) => `${km.toLocaleString("en-US")} km`;
 
-export function renderInvoicePdf(invoice: InvoiceDetail): Promise<Buffer> {
+/** `shop` is Settings → Shop details at the time the PDF is made (a stored copy keeps them). */
+export function renderInvoicePdf(invoice: InvoiceDetail, shop: ShopDetails = DEFAULT_SHOP_DETAILS): Promise<Buffer> {
   const number = formatInvoiceNumber(invoice.number);
   const doc = new PDFDocument({
     size: "A4",
     margin: MARGIN,
-    info: { Title: number, Author: SHOP.name, Subject: `Invoice ${number}` },
+    info: { Title: number, Author: shop.name, Subject: `Invoice ${number}` },
   });
   doc.registerFont("regular", REGULAR);
   doc.registerFont("bold", BOLD);
@@ -61,10 +64,11 @@ export function renderInvoicePdf(invoice: InvoiceDetail): Promise<Buffer> {
 
   // ── Shop and invoice number ────────────────────────────────────────────────
   let y = MARGIN;
-  doc.font("bold").fontSize(16).fillColor("black").text(SHOP.name, left, y);
+  doc.font("bold").fontSize(16).fillColor("black").text(shop.name, left, y);
   doc.font("regular").fontSize(10).fillColor(GREY);
-  for (const line of SHOP.address) doc.text(line);
-  doc.text(`Tel. ${SHOP.phone} · Tax ID ${SHOP.taxId}`);
+  for (const line of shopAddressLines(shop)) doc.text(line);
+  doc.text([`Tel. ${formatThaiPhone(shop.phone)}`, shop.email].filter(Boolean).join(" · "));
+  doc.text(`Tax ID ${shop.taxId}`);
   const shopBottom = doc.y;
 
   doc.font("bold").fontSize(16).fillColor("black").text("Invoice", left, y, { width, align: "right" });

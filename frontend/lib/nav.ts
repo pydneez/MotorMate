@@ -25,6 +25,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { slug: "invoices", label: "Invoices", roles: ["ADMIN", "ADVISOR", "CUSTOMER"] },
   { slug: "reports", label: "Reports", roles: ["ADMIN"] },
   { slug: "staff", label: "Staff", roles: ["ADMIN"] },
+  { slug: "settings", label: "Settings", roles: ["ADMIN"] },
 ];
 
 /** Customers see some sections under friendlier names. */

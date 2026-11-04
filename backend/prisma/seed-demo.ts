@@ -4,6 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import * as bcrypt from "bcryptjs";
 import { addDays, bangkokDateTime, bangkokParts, calculateTotals, normalizePlate, normalizeThaiPhone } from "@motormate/types";
 import { pgConfig } from "../src/prisma/pg-config";
+import { upsertPriceList } from "./price-list";
 
 /**
  * Demo data for the presentation: about six months of plausible shop history on top of the
@@ -43,13 +44,13 @@ type Sku = (typeof PARTS)[number]["sku"];
 
 /** What customers come in for: the complaint, what was found and done, and the lines billed. */
 const JOBS: { complaint: string; diagnosis: string; work: string; labour: [string, number][]; parts: [Sku, number][]; weight: number }[] = [
-  { complaint: "Scheduled 10,000 km service", diagnosis: "Oil due for change", work: "Changed engine oil and oil filter, checked brakes and tyres", labour: [["Oil change labour", 500]], parts: [["OIL-5W30-4L", 1], ["FLT-OIL-HON", 1]], weight: 9 },
-  { complaint: "Brakes squeal when stopping", diagnosis: "Front pads worn to 2 mm", work: "Replaced front brake pads, topped up brake fluid", labour: [["Replace front brake pads", 800]], parts: [["BRK-PAD-FR-HON", 1], ["BRK-FLD-DOT4", 1]], weight: 4 },
+  { complaint: "Scheduled 10,000 km service", diagnosis: "Oil due for change", work: "Changed engine oil and oil filter, checked brakes and tyres", labour: [["Oil change", 500]], parts: [["OIL-5W30-4L", 1], ["FLT-OIL-HON", 1]], weight: 9 },
+  { complaint: "Brakes squeal when stopping", diagnosis: "Front pads worn to 2 mm", work: "Replaced front brake pads, topped up brake fluid", labour: [["Front brake pads replacement", 800]], parts: [["BRK-PAD-FR-HON", 1], ["BRK-FLD-DOT4", 1]], weight: 4 },
   { complaint: "Car won't start in the morning", diagnosis: "Battery failed load test", work: "Replaced battery, checked charging system", labour: [["Battery test and replacement", 300]], parts: [["BAT-12V-60AH", 1]], weight: 2 },
   { complaint: "Air-con not cold", diagnosis: "Cabin filter clogged, system pressure OK", work: "Replaced cabin filter, cleaned evaporator", labour: [["A/C check and clean", 900]], parts: [["FLT-CAB-UNI", 1]], weight: 4 },
-  { complaint: "Rough idle and misfire", diagnosis: "Worn spark plugs", work: "Replaced all four spark plugs", labour: [["Replace spark plugs", 700]], parts: [["SPK-PLG-IRI", 4]], weight: 3 },
+  { complaint: "Rough idle and misfire", diagnosis: "Worn spark plugs", work: "Replaced all four spark plugs", labour: [["Spark plug replacement", 700]], parts: [["SPK-PLG-IRI", 4]], weight: 3 },
   { complaint: "Temperature warning light", diagnosis: "Coolant low and dirty", work: "Flushed and refilled the cooling system", labour: [["Cooling system flush", 1200]], parts: [["CLN-COOL-1L", 4]], weight: 2 },
-  { complaint: "Wipers streaking in the rain", diagnosis: "Blades perished", work: "Fitted new wiper blades", labour: [["Fit wiper blades", 150]], parts: [["WPR-BLD-24", 2]], weight: 3 },
+  { complaint: "Wipers streaking in the rain", diagnosis: "Blades perished", work: "Fitted new wiper blades", labour: [["Wiper blade fitting", 150]], parts: [["WPR-BLD-24", 2]], weight: 3 },
   { complaint: "40,000 km major service", diagnosis: "Due for major service", work: "Major service: oil, filters, brake fluid, spark plugs", labour: [["Major service", 1800], ["Brake fluid replacement", 400]], parts: [["OIL-5W30-4L", 2], ["FLT-OIL-HON", 1], ["FLT-AIR-HON", 1], ["BRK-FLD-DOT4", 1], ["SPK-PLG-IRI", 4]], weight: 3 },
   { complaint: "Knocking noise over bumps", diagnosis: "Front lower arm bushing worn", work: "Replaced bushings (supplied by customer)", labour: [["Suspension inspection", 600], ["Bushing replacement", 1500]], parts: [], weight: 2 },
 ];
@@ -205,6 +206,7 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
   for (const p of planned) if (hasLines(p.status)) for (const [sku, qty] of p.job.parts) usage.set(sku, (usage.get(sku) ?? 0) + qty);
 
   // ── Stock: catalogue, then one opening purchase per item so the history fits ─
+  const priceList = await upsertPriceList(prisma);
   const items = new Map<Sku, { id: string; unitPrice: number }>();
   for (const part of PARTS) {
     const { target, ...fields } = part;
@@ -271,7 +273,16 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
             createdAt: at[i],
           })),
         },
-        serviceItems: { create: labour.map(([description, laborCost]) => ({ description, laborCost, createdAt: at[Math.min(2, at.length - 1)] })) },
+        // Lines named like a price-list service are linked to it; the rest are custom lines.
+        serviceItems: {
+          create: labour.map(([description, laborCost]) => ({
+            description,
+            laborCost,
+            catalogItemId: priceList.get(description) ?? null,
+            addedById: assigned ?? advisor.id,
+            createdAt: at[Math.min(2, at.length - 1)],
+          })),
+        },
         partsUsed: { create: parts.map((part) => ({ inventoryItemId: part.id, quantity: part.quantity, unitPrice: part.unitPrice, createdAt: at[Math.min(2, at.length - 1)] })) },
         stockMovements: {
           create: parts.map((part) => ({

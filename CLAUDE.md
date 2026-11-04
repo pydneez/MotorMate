@@ -139,6 +139,8 @@ backend/src/
   appointments/         "Lite" booking: request, confirm, reschedule, cancel, no-show
                         (check-in itself is POST /work-orders with appointmentId)
   reports/              admin-only summary, revenue totals, CSV exports (csv.ts)
+  settings/             SettingsService (global): the shop's details (GET any login, PATCH admin)
+  services/             the price list: GET /services (what you see depends on the role), admin CRUD
   common/
     decorators/          @Public, @Roles, @CurrentUser
     guards/              JwtAuthGuard, RolesGuard (both global)
@@ -194,7 +196,12 @@ schema before calling the API. List search and paging live in the URL.
   complaint, diagnosis, work performed, assigned mechanic, status.
 - **WorkOrderStatusChange** — every status transition with who/when; doubles as the audit
   trail and the vehicle service timeline.
-- **ServiceItem** — labor lines on a WorkOrder.
+- **ServiceItem** — labor lines on a WorkOrder: from the price list (`catalogItemId`) or
+  custom (null); `addedById` is who added it.
+- **ServiceCatalogItem** — the price list: routine jobs at a fixed price (name unique,
+  category, price excl. VAT, `bookable` = customers can pick it, `isActive`; never deleted).
+- **AppointmentService** — a service picked when booking, with name + price snapshot.
+- **ShopSettings** — one row (id 1): the shop's name, address, phone, email, tax ID.
 - **InventoryItem** — part catalog (SKU, category, qty on hand, cost, price, supplier,
   reorder level).
 - **PartUsed** — InventoryItem consumed on a WorkOrder, with price snapshot.
@@ -247,6 +254,13 @@ schema before calling the API. List search and paging live in the URL.
     raises the vehicle's mileage to the check-in reading (conditional update, never lowers
     it). A job with no labour and no parts can't be completed; two completions at once →
     409 (invoice is unique per job).
+  - **Labour lines** come from the **price list** (Settings → Services & prices) or are
+    **custom** ("middle way", Step 12): picking a service fills its name and today's price.
+    Advisors/admins may change a list price on the line (the audit entry keeps `listPrice`);
+    a mechanic can't (400) but may add custom lines on their own job. The **Pass QC &
+    invoice** dialog lists custom lines a mechanic added, so the advisor checks those prices
+    before invoicing. A deactivated service can't be picked. Lines show "Price list" or
+    "Custom · added by …".
   - **Recommendations** ("Brake pads check at 80,000 km") are added by staff or the assigned
     mechanic while the job is open: due mileage must be above this visit's, due date after
     today (Bangkok); at least one of the two. Stored at UTC midnight so `yyyy-mm-dd`
@@ -257,6 +271,11 @@ schema before calling the API. List search and paging live in the URL.
     **2 hours** ahead and at most 60 days ahead (`bookingTimeError()`).
   - A customer books for their **own** vehicle → `REQUESTED`; staff book for anyone (phone
     bookings) → `CONFIRMED`. One upcoming (requested/confirmed) appointment per vehicle.
+  - **Services:** the booking form lists the price list (customers: bookable ones only,
+    "from ฿X", an estimate excl. VAT, "final price after inspection"); pick services, write a
+    note, or both. Picked services are snapshotted (`AppointmentService`, price at booking);
+    with no note the reason becomes the services' names. **Check-in** turns them into the
+    job's first labour lines at the quoted price, in the same transaction.
   - Staff: confirm, reschedule, cancel, check in (any time before), no-show (confirmed and
     past its time). Customers: cancel, and move a still-`REQUESTED` one — only until **2
     hours before**; after that the page tells them to call the shop.
@@ -317,8 +336,11 @@ schema before calling the API. List search and paging live in the URL.
     comes from the `invoice.paid` audit entry, so there is no extra column. No payment
     integration, no un-paying, `VOID` unused for now.
   - Printing uses the browser's print dialog; the app shell is hidden with `print:hidden`.
-    Shop details are placeholders in `SHOP` (`packages/types/src/shop.ts`), shared by the
-    page and the PDF.
+    Shop details (name, address, phone, email, tax ID) come from **Settings → Shop
+    details** (`SettingsService.shop()`; `DEFAULT_SHOP_DETAILS` until the row exists) — the
+    page, the PDF, the email signature and "call us on …" messages. Opening hours stay in
+    `SHOP.hours` (booking rules use them). A PDF already stored in S3 keeps the details it
+    was made with.
   - **PDF** (`GET /invoices/:id/pdf` → `{ url, filename }`, same access as the invoice;
     `InvoicePdfService` + `renderInvoicePdf()` in `backend/src/invoices`): pdfkit with the
     embedded Sarabun Thai font (`backend/assets/fonts`, OFL). It's the invoice **as issued
@@ -337,9 +359,8 @@ schema before calling the API. List search and paging live in the URL.
     Revenue only — no profit: parts used keep the price charged, not the cost at the time.
   - **Repeat customers:** of the customers with a job completed in the period, those with at
     least two completed jobs by its end (by the vehicle's current owner).
-  - **Most common labour lines** stand in for "most-performed services": labour lines are free
-    text, so they're grouped by wording (case and spacing ignored), with count and amount.
-    A price list (backlog) would make this exact.
+  - **Most performed services:** price-list lines counted per service (by its current name),
+    with count and amount, then all custom lines as one "Other (custom lines)" row.
   - **Inventory turnover** for the period = parts used at today's unit cost ÷ stock value at
     cost today (no cost snapshot on parts used); the parts tables show used vs on hand.
   - CSVs are UTF-8 with BOM (Thai text in Excel), CRLF; cells starting `= + - @` get a `'` so
@@ -474,10 +495,10 @@ appointment filters (PR #23), customer Visits list (PR #24; the customer-side "M
 135, was dropped — invoices + vehicle history cover it). Step 10 — demo readiness (demo seed,
 wider smoke test, end-to-end hand-off; Jira 158–161) — is on `chore/demo-readiness`;
 Step 11 — check-in journey fixes + inventory turnover / labour lines in Reports (162–164) — is
-stacked on it as `feat/check-in-journey`. **Next:** Step 12, the fixed-price service list in
-an admin settings page (`docs/backlog.md`, Jira 136–140) — plan first. Then the dev-account
-rehearsal (160), the final document, demo account deploy (Nov 8–10, `seed.sh --demo`), code
-freeze Nov 10.
+stacked on it as `feat/check-in-journey`; Step 12 — Settings page: shop details + the price
+list, used by labour lines, bookings and Reports (136–140, 165) — is stacked on that as
+`feat/price-list`. **Next:** the dev-account rehearsal (160), the final document, demo
+account deploy (Nov 8–10, `seed.sh --demo`), code freeze Nov 10.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -522,10 +543,11 @@ design needs a one-line "why". So far: no domain → HTTPS from API Gateway's ce
 NextAuth + our own JWT; private subnets + NAT → public subnets with locked-down security
 groups (NAT too expensive); SES → SNS email (SES denied); Multi-AZ only in the demo
 account (cost); only `LabRole` exists, so no least-privilege IAM roles (documented limit);
-reports show revenue, not profit (no cost snapshot on parts used), and "most-performed
-services" as the most common labour lines (free text until a price list exists); no customer "My visits"
+reports show revenue, not profit (no cost snapshot on parts used); no customer "My visits"
 page (My Invoices + each vehicle's service history already show it; staff get a Visits list
-per customer); the fixed-price service list is future work (too big for the time left).
+per customer); labour is a fixed-price list plus custom lines ("middle way": mechanics may
+add custom lines, the advisor checks them at QC) — hourly estimates with customer approval
+are future work.
 
 ## Local development
 
@@ -569,7 +591,8 @@ customer `jordan.lee@example.com`.
 `bash infra/scripts/seed.sh --demo`): ~6 months of history on top of the seed — 12
 customers ([demo] in their notes; `ploy.s@` / `anan.r@example.com` have logins), 15
 vehicles, 45 completed jobs with invoices (most paid), one open job per status, a second
-mechanic (`mechanic2@`), stock purchases + parts used as movements, recommendations in every
+mechanic (`mechanic2@`), stock purchases + parts used as movements, routine labour linked to
+the price list (`prisma/price-list.ts`, 8 services, also in the plain seed), recommendations in every
 reminder state, appointments in every status. Dated relative to today, seeded random (same
 every run), runs once (skips if demo customers exist), sends nothing.
 `backend/test/seed-demo.int-spec.ts` checks it keeps the app's rules (invoice totals, stock
@@ -646,24 +669,17 @@ Values that must agree **across files**:
 
 Agreed as good ideas, deliberately not built so the MVP stays on schedule. Don't build
 without the team deciding first. **`docs/backlog.md`** has the detailed build notes for
-what's left: fixed prices for routine services (extends the price list below). Built items
-are removed from it.
+what's left: hourly labour with estimates (the second half of the price list below). Built
+items are removed from it.
 
-- **Labour price list (hybrid pricing).** Today labour lines are free-typed amounts entered
-  by staff or the assigned mechanic (common in small garages, but anyone can type any
-  number; the advisor's QC sign-off is the only check). Proposed model:
-  - **Routine maintenance → fixed price per job** from an admin-maintained list (oil/fluid
-    changes, brake pads, battery, tyre rotation…). Picking the job fills the price; the
-    price is snapshotted on the line like parts.
+- **Labour price list (hybrid pricing).** The fixed-price half is built (Step 12: routine
+  jobs from Settings → Services & prices, custom lines for the rest). Still parked:
   - **Unpredictable repairs → hours × shop hourly rate** (engine diagnostics, electrical
     troubleshooting, oil leaks, suspension rebuilds), entered as an **estimate** the
     customer approves before work starts; actual hours recorded; re-approval if it runs
     over. Often with a fixed diagnostic fee.
-  - Mechanics can only pick from the list; advisors/admins can add custom lines or override
-    a price with a required reason (audited).
-  - Data: one price list (`type: FIXED | HOURLY`, price or standard hours), a shop
-    hourly-rate setting, and labour lines linking to their price-list entry with
-    estimated/actual hours.
+  - Data: a `type: FIXED | HOURLY` on the price list (price or standard hours), a shop
+    hourly-rate setting, and estimated/actual hours on labour lines.
 
 ## Explicitly out of scope for now
 

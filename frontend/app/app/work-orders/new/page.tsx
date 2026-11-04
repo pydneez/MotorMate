@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { APPOINTMENT_VIEWS, bangkokParts, type AppointmentSummary, type MechanicOption, type VehicleDetail } from "@motormate/types";
+import { BookedServices } from "@/components/appointments/booked-services";
 import { Alert, Card, PageHeader } from "@/components/ui";
 import { CheckInForm } from "@/components/work-orders/check-in-form";
 import { WalkInForm } from "@/components/work-orders/walk-in-form";
@@ -46,6 +47,12 @@ export default async function CheckInPage({ searchParams }: Props) {
               This booking is for {formatAppointmentTime(appointment.scheduledAt)}, not today. Check it&apos;s the right customer
               and car before checking in.
             </Alert>
+          </div>
+        )}
+        {appointment.services.length > 0 && (
+          <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <p>Booked services — they become the job&apos;s first labour lines, at the price quoted:</p>
+            <BookedServices services={appointment.services} />
           </div>
         )}
         <Card className="p-6">

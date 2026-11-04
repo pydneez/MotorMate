@@ -114,6 +114,16 @@ describe("demo seed", () => {
     for (const a of appointments.filter((a) => a.status === "CHECKED_IN" || a.status === "COMPLETED")) expect(a.workOrderId).not.toBeNull();
   });
 
+  it("links the routine labour lines to the price list, at its prices", async () => {
+    const linked = await prisma.serviceItem.findMany({ where: { catalogItemId: { not: null } }, include: { catalogItem: true } });
+    expect(linked.length).toBeGreaterThan(20);
+    for (const line of linked) {
+      expect(line.description).toBe(line.catalogItem!.name);
+      expect(Number(line.laborCost)).toBe(Number(line.catalogItem!.price));
+    }
+    expect(await prisma.serviceCatalogItem.count()).toBe(8);
+  });
+
   it("gives the reports and reminders something to show", async () => {
     const login = await request(app.getHttpServer()).post("/auth/login").send({ email: "admin@motormate.example", password: "password123" }).expect(200);
     const { body } = await request(app.getHttpServer())
@@ -126,6 +136,9 @@ describe("demo seed", () => {
     expect(body.bookings.repeatCustomers).toBeGreaterThan(0);
     expect(body.parts.turnover).toBeGreaterThan(0);
     expect(body.jobs.topLabour.length).toBeGreaterThanOrEqual(5);
+    // Routine jobs come from the price list; the suspension work and brake fluid stay custom lines.
+    expect(body.jobs.topLabour.filter((line: { custom: boolean }) => !line.custom).length).toBeGreaterThanOrEqual(5);
+    expect(body.jobs.topLabour.at(-1)).toEqual(expect.objectContaining({ description: "Other (custom lines)", custom: true }));
     const states = await prisma.serviceRecommendation.groupBy({ by: ["status"], _count: { _all: true } });
     expect(states.map((s) => s.status).sort()).toEqual(["DISMISSED", "OPEN", "REMINDED"]);
   });

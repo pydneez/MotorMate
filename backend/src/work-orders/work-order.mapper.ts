@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import {
   calculateTotals,
   type InvoiceStatus,
+  type Role,
   type WorkOrderDetail,
   type WorkOrderStatus,
   type WorkOrderSummary,
@@ -27,7 +28,7 @@ export const workOrderSummaryInclude = {
 export const workOrderDetailInclude = {
   ...workOrderSummaryInclude,
   createdBy: { select: { firstName: true, lastName: true } },
-  serviceItems: { orderBy: { createdAt: "asc" } },
+  serviceItems: { orderBy: { createdAt: "asc" }, include: { addedBy: { select: { id: true, firstName: true, lastName: true, role: true } } } },
   partsUsed: { orderBy: { createdAt: "asc" }, include: { inventoryItem: { select: { sku: true, name: true } } } },
   statusChanges: { orderBy: { createdAt: "asc" }, include: { changedBy: { select: { firstName: true, lastName: true } } } },
   recommendations: { orderBy: { createdAt: "asc" } },
@@ -66,6 +67,8 @@ export function toWorkOrderDetail(row: DetailRow): WorkOrderDetail {
     id: item.id,
     description: item.description,
     laborCost: item.laborCost.toNumber(),
+    catalogItemId: item.catalogItemId,
+    addedBy: item.addedBy ? { id: item.addedBy.id, name: name(item.addedBy), role: item.addedBy.role as Role } : null,
   }));
   const parts = row.partsUsed.map((part) => {
     const unitPrice = part.unitPrice.toNumber();

@@ -12,8 +12,10 @@ import { UsersModule } from "./users/users.module";
 import { VehiclesModule } from "./vehicles/vehicles.module";
 import { WorkOrdersModule } from "./work-orders/work-orders.module";
 import { ReportsModule } from "./reports/reports.module";
+import { ServicesModule } from "./services/services.module";
+import { SettingsModule } from "./settings/settings.module";
 
 @Module({
-  imports: [PrismaModule, AuthModule, HealthModule, UsersModule, CustomersModule, VehiclesModule, InventoryModule, WorkOrdersModule, InvoicesModule, AppointmentsModule, NotificationsModule, RemindersModule, ReportsModule],
+  imports: [PrismaModule, AuthModule, HealthModule, UsersModule, CustomersModule, VehiclesModule, InventoryModule, WorkOrdersModule, InvoicesModule, AppointmentsModule, NotificationsModule, RemindersModule, ReportsModule, SettingsModule, ServicesModule],
 })
 export class AppModule {}

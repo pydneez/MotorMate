@@ -399,8 +399,56 @@ describe("WorkOrdersService labour and parts", () => {
     await workOrders.addLabour(sam, "wo-1", { description: "Replace pads", laborCost: 600 });
     await workOrders.removeLabour(sam, "wo-1", "li-1");
 
-    expect(prisma.serviceItem.create.mock.calls[0][0].data).toEqual({ workOrderId: "wo-1", description: "Replace pads", laborCost: 600 });
+    expect(prisma.serviceItem.create.mock.calls[0][0].data).toEqual({
+      workOrderId: "wo-1",
+      description: "Replace pads",
+      laborCost: 600,
+      catalogItemId: null,
+      addedById: "mech-sam",
+    });
     expect(prisma.serviceItem.delete).toHaveBeenCalledWith({ where: { id: "li-1" } });
+  });
+
+  describe("from the price list", () => {
+    const oilChange = { id: "svc-oil", name: "Oil change", price: new Prisma.Decimal(450), isActive: true };
+
+    function listSetup() {
+      const ctx = setup();
+      ctx.prisma.workOrder.findUnique.mockResolvedValue(workOrderRow());
+      ctx.prisma.serviceItem.create.mockResolvedValue({ id: "li-1" });
+      ctx.prisma.serviceCatalogItem.findFirst.mockResolvedValue(oilChange);
+      return ctx;
+    }
+
+    it("takes the name and price from the list", async () => {
+      const { prisma, workOrders } = listSetup();
+      await workOrders.addLabour(sam, "wo-1", { catalogItemId: "svc-oil" });
+      expect(prisma.serviceCatalogItem.findFirst).toHaveBeenCalledWith({ where: { id: "svc-oil", isActive: true } });
+      expect(prisma.serviceItem.create.mock.calls[0][0].data).toEqual(
+        expect.objectContaining({ description: "Oil change", laborCost: 450, catalogItemId: "svc-oil", addedById: "mech-sam" }),
+      );
+    });
+
+    it("lets staff change the price, keeping the list price in the audit entry", async () => {
+      const { prisma, workOrders } = listSetup();
+      await workOrders.addLabour(advisor, "wo-1", { catalogItemId: "svc-oil", laborCost: 400 });
+      expect(prisma.serviceItem.create.mock.calls[0][0].data.laborCost).toBe(400);
+      expect(prisma.auditLog.create.mock.calls[0][0].data.changes).toEqual(expect.objectContaining({ laborCost: 400, listPrice: 450 }));
+    });
+
+    it("refuses a mechanic's different price, but accepts the list price sent back", async () => {
+      const { prisma, workOrders } = listSetup();
+      await expect(workOrders.addLabour(sam, "wo-1", { catalogItemId: "svc-oil", laborCost: 300 })).rejects.toThrow(BadRequestException);
+      await workOrders.addLabour(sam, "wo-1", { catalogItemId: "svc-oil", laborCost: 450 });
+      expect(prisma.serviceItem.create).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses a service that was deactivated", async () => {
+      const { prisma, workOrders } = listSetup();
+      prisma.serviceCatalogItem.findFirst.mockResolvedValue(null);
+      await expect(workOrders.addLabour(advisor, "wo-1", { catalogItemId: "svc-old" })).rejects.toThrow(BadRequestException);
+      expect(prisma.serviceItem.create).not.toHaveBeenCalled();
+    });
   });
 
   it("takes a part out of stock and snapshots its current price", async () => {

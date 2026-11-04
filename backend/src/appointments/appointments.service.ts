@@ -7,7 +7,8 @@ import {
   bangkokParts,
   CUSTOMER_CHANGE_CUTOFF_MINUTES,
   normalizePlate,
-  SHOP,
+  DEFAULT_SHOP_DETAILS,
+  formatThaiPhone,
   UPCOMING_APPOINTMENT_STATUSES,
   type AppointmentAction,
   type AppointmentCounts,
@@ -19,6 +20,7 @@ import {
   type CreateAppointmentSchema,
   type Paginated,
   type RescheduleAppointmentSchema,
+  type ShopDetails,
 } from "@motormate/types";
 import type { z } from "zod";
 import { writeAudit } from "../common/utils/audit";
@@ -27,6 +29,7 @@ import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { appointmentEmail, type AppointmentEmailKind } from "../notifications/email-text";
 import { NotifierService } from "../notifications/notifier.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 import { appointmentInclude, toAppointmentSummary } from "./appointment.mapper";
 
 export type CreateAppointmentData = z.output<typeof CreateAppointmentSchema>;
@@ -53,7 +56,12 @@ export class AppointmentsService {
     private readonly prisma: PrismaService,
     // Optional so unit tests can build the service without it.
     @Optional() private readonly notifier?: NotifierService,
+    @Optional() private readonly settings?: SettingsService,
   ) {}
+
+  private async shop(): Promise<ShopDetails> {
+    return (await this.settings?.shop()) ?? DEFAULT_SHOP_DETAILS;
+  }
 
   async list(user: AuthUser, query: AppointmentListQuery): Promise<Paginated<AppointmentSummary>> {
     const { start, end } = this.today();
@@ -148,6 +156,21 @@ export class AppointmentsService {
       throw new ConflictException(`This vehicle already has an appointment on ${date} at ${time}. Change or cancel that one instead.`);
     }
 
+    // Services from the price list, priced as they are now. Customers see only the bookable ones.
+    const serviceIds = [...new Set(input.serviceIds)];
+    const services =
+      serviceIds.length === 0
+        ? []
+        : await this.prisma.serviceCatalogItem.findMany({
+            where: { id: { in: serviceIds }, isActive: true, ...(isCustomer ? { bookable: true } : {}) },
+            orderBy: { name: "asc" },
+          });
+    if (services.length !== serviceIds.length) {
+      const message = "One of those services isn't available any more — refresh and pick again";
+      throw new BadRequestException({ message, errors: { serviceIds: [message] } });
+    }
+    const reason = input.reason || services.map((service) => service.name).join(", ");
+
     const status: AppointmentStatus = isCustomer ? "REQUESTED" : "CONFIRMED";
     const id = await this.prisma.$transaction(async (tx) => {
       const appointment = await tx.appointment.create({
@@ -155,9 +178,10 @@ export class AppointmentsService {
           customerId: vehicle.customerId,
           vehicleId: vehicle.id,
           scheduledAt: bangkokDateTime(input.date, input.time)!,
-          reason: input.reason,
+          reason,
           status,
           createdById: user.id,
+          services: { create: services.map((service) => ({ catalogItemId: service.id, name: service.name, price: service.price })) },
         },
       });
       await writeAudit(tx, {
@@ -165,7 +189,12 @@ export class AppointmentsService {
         action: "appointment.created",
         entity: "Appointment",
         entityId: appointment.id,
-        changes: { vehicleId: vehicle.id, scheduledAt: appointment.scheduledAt.toISOString(), status },
+        changes: {
+          vehicleId: vehicle.id,
+          scheduledAt: appointment.scheduledAt.toISOString(),
+          status,
+          ...(services.length > 0 ? { services: services.map((service) => service.name) } : {}),
+        },
       });
       return appointment.id;
     });
@@ -237,7 +266,7 @@ export class AppointmentsService {
           vehicle: { select: { make: true, model: true, plate: true } },
         },
       });
-      const { subject, body } = appointmentEmail(kind, appointment.customer.firstName, appointment);
+      const { subject, body } = appointmentEmail(kind, appointment.customer.firstName, appointment, await this.shop());
       const type = ({ confirmed: "APPOINTMENT_CONFIRMED", rescheduled: "APPOINTMENT_RESCHEDULED", cancelled: "APPOINTMENT_CANCELLED" } as const)[kind];
       await this.notifier.send({ type, customer: appointment.customer, subject, body, appointmentId: id, recordSkipped: true });
     } catch (error) {
@@ -252,11 +281,12 @@ export class AppointmentsService {
 
     const upcoming = UPCOMING_APPOINTMENT_STATUSES.includes(appointment.status);
     if (user.role === "CUSTOMER" && upcoming) {
+      const phone = formatThaiPhone((await this.shop()).phone);
       if (action === "reschedule" && appointment.status === "CONFIRMED") {
-        throw new BadRequestException(`It's already confirmed. To move it, cancel it and book again, or call us on ${SHOP.phone}.`);
+        throw new BadRequestException(`It's already confirmed. To move it, cancel it and book again, or call us on ${phone}.`);
       }
       throw new BadRequestException(
-        `It's less than ${CUSTOMER_CHANGE_CUTOFF_MINUTES / 60} hours away, so it can't be changed online. Please call us on ${SHOP.phone}.`,
+        `It's less than ${CUSTOMER_CHANGE_CUTOFF_MINUTES / 60} hours away, so it can't be changed online. Please call us on ${phone}.`,
       );
     }
     const verb = { confirm: "confirmed", reschedule: "rescheduled", cancel: "cancelled", checkIn: "checked in", noShow: "marked as a no-show" }[action];

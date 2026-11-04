@@ -118,8 +118,11 @@ export type OpenWorkOrderStatus = Exclude<WorkOrderStatus, "COMPLETED" | "CANCEL
  */
 export type ReportPartRow = { id: string; sku: string; name: string; quantity: number; revenue: number; costUsed: number; onHand: number };
 
-/** A labour line, grouped regardless of capitals and spacing (lines are typed freely). */
-export type ReportLabourRow = { description: string; count: number; amount: number };
+/**
+ * A service from the price list (by its current name), or — `custom: true` — every custom
+ * labour line together, which comes last.
+ */
+export type ReportLabourRow = { description: string; count: number; amount: number; custom: boolean };
 
 /** Invoiced amounts for a period — all of GET /reports/revenue, and part of the summary. */
 export type RevenueTotals = {
