@@ -128,6 +128,16 @@ describe("reports", () => {
     await get(tokens.admin, "/reports/revenue?from=2025-01-01&to=2026-10-31").expect(400);
   });
 
+  it("groups labour lines however they're typed, and has no turnover without stock", async () => {
+    // Same work typed differently on another October job; 0 so the totals above don't move.
+    const job = await prisma.workOrder.findFirstOrThrow({ where: { number: 3 } });
+    await prisma.serviceItem.create({ data: { workOrderId: job.id, description: "  LABOUR   ", laborCost: 0 } });
+
+    const { body } = await get(tokens.admin, `/reports/summary?${OCTOBER}`).expect(200);
+    expect(body.jobs.topLabour).toEqual([{ description: expect.stringMatching(/^labour$/i), count: 3, amount: 1500 }]);
+    expect(body.parts).toEqual(expect.objectContaining({ costOfPartsUsed: 0, stockValueAtCost: 0, turnover: null }));
+  });
+
   it.each(["advisor", "mechanic", "customer"] as const)("is admin only (%s gets 403)", async (role) => {
     await get(tokens[role], `/reports/summary?${OCTOBER}`).expect(403);
     await get(tokens[role], `/reports/revenue?${OCTOBER}`).expect(403);

@@ -12,6 +12,7 @@ import {
   WORK_ORDER_STATUS_LABEL,
   type OpenWorkOrderStatus,
   type ReportBucket,
+  type ReportLabourRow,
   type ReportPartRow,
   type ReportQuery,
   type ReportSummary,
@@ -63,6 +64,11 @@ export function fillSeries(
   });
 }
 
+/** Parts used at cost ÷ stock value at cost, for the period; null when there's no stock to turn over. */
+export function inventoryTurnover(costOfPartsUsed: number, stockValueAtCost: number): number | null {
+  return stockValueAtCost > 0 ? round2(costOfPartsUsed / stockValueAtCost) : null;
+}
+
 export function topParts(rows: ReportPartRow[]): Pick<ReportSummary["parts"], "topByQuantity" | "topByRevenue"> {
   const byName = (a: ReportPartRow, b: ReportPartRow) => a.name.localeCompare(b.name);
   return {
@@ -84,7 +90,7 @@ export class ReportsService {
     const bucket = reportBucket(range.from, range.to);
     const invoiced = this.invoiced(period);
 
-    const [totals, labour, series, parts, jobs, cancelled, open, mechanics, stock, appointments, newCustomers, repeat, remindersSent] =
+    const [totals, labour, series, parts, jobs, cancelled, open, mechanics, stock, appointments, newCustomers, repeat, remindersSent, topLabour] =
       await Promise.all([
         this.revenueTotals(period),
         this.prisma.serviceItem.aggregate({ where: { workOrder: { invoice: { is: invoiced } } }, _sum: { laborCost: true } }),
@@ -99,7 +105,9 @@ export class ReportsService {
         this.prisma.customer.count({ where: { createdAt: period } }),
         this.repeatCustomers(period),
         this.prisma.notificationLog.count({ where: { type: "SERVICE_REMINDER", status: "SENT", createdAt: period } }),
+        this.labourLines(period),
       ]);
+    const costOfPartsUsed = round2(parts.reduce((sum, part) => sum + part.costUsed, 0));
 
     const openByStatus = Object.fromEntries(OPEN_STATUSES.map((status) => [status, 0])) as Record<OpenWorkOrderStatus, number>;
     for (const row of open) openByStatus[row.status as OpenWorkOrderStatus] = row._count._all;
@@ -121,8 +129,9 @@ export class ReportsService {
         averageHoursToComplete: jobs.hours === null ? null : round2(jobs.hours),
         openByStatus,
         mechanics,
+        topLabour,
       },
-      parts: { ...topParts(parts), ...stock },
+      parts: { ...topParts(parts), ...stock, costOfPartsUsed, turnover: inventoryTurnover(costOfPartsUsed, stock.stockValueAtCost) },
       bookings: {
         total: appointments.reduce((sum, row) => sum + row._count._all, 0),
         completed: booked("COMPLETED"),
@@ -199,16 +208,44 @@ export class ReportsService {
   }
 
   private async partsUsed(period: Period): Promise<ReportPartRow[]> {
-    const rows = await this.prisma.$queryRaw<{ id: string; sku: string; name: string; quantity: number; revenue: Amount }[]>`
+    const rows = await this.prisma.$queryRaw<
+      { id: string; sku: string; name: string; quantity: number; revenue: Amount; costUsed: Amount; onHand: number }[]
+    >`
       SELECT i."id", i."sku", i."name",
              SUM(p."quantity")::int AS "quantity",
-             SUM(p."quantity" * p."unitPrice") AS "revenue"
+             SUM(p."quantity" * p."unitPrice") AS "revenue",
+             SUM(p."quantity" * i."unitCost") AS "costUsed",
+             i."quantityOnHand"::int AS "onHand"
       FROM "PartUsed" p
       JOIN "InventoryItem" i ON i."id" = p."inventoryItemId"
       JOIN "Invoice" v ON v."workOrderId" = p."workOrderId"
       WHERE v."issuedAt" >= ${period.gte} AND v."issuedAt" < ${period.lt} AND v."status" <> 'VOID'
-      GROUP BY i."id", i."sku", i."name"`;
-    return rows.map((row) => ({ ...row, quantity: Number(row.quantity), revenue: amount(row.revenue) }));
+      GROUP BY i."id", i."sku", i."name", i."quantityOnHand"`;
+    return rows.map((row) => ({
+      ...row,
+      quantity: Number(row.quantity),
+      revenue: amount(row.revenue),
+      costUsed: round2(amount(row.costUsed)),
+      onHand: Number(row.onHand),
+    }));
+  }
+
+  /**
+   * The most common labour lines on invoiced jobs. Lines are typed freely, so they're grouped
+   * regardless of capitals and extra spaces; the label is one of the spellings used.
+   */
+  private async labourLines(period: Period): Promise<ReportLabourRow[]> {
+    const rows = await this.prisma.$queryRaw<{ description: string; count: number; amount: Amount }[]>`
+      SELECT MIN(btrim(regexp_replace(s."description", '\\s+', ' ', 'g'))) AS "description",
+             COUNT(*)::int AS "count",
+             SUM(s."laborCost") AS "amount"
+      FROM "ServiceItem" s
+      JOIN "Invoice" v ON v."workOrderId" = s."workOrderId"
+      WHERE v."issuedAt" >= ${period.gte} AND v."issuedAt" < ${period.lt} AND v."status" <> 'VOID'
+      GROUP BY lower(btrim(regexp_replace(s."description", '\\s+', ' ', 'g')))
+      ORDER BY "count" DESC, "amount" DESC, 1
+      LIMIT ${TOP_PARTS}`;
+    return rows.map((row) => ({ description: row.description, count: Number(row.count), amount: amount(row.amount) }));
   }
 
   private async completedJobs(period: Period): Promise<{ completed: number; hours: number | null }> {

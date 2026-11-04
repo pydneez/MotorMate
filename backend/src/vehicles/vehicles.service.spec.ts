@@ -62,6 +62,20 @@ describe("VehiclesService.list / findOne scoping", () => {
     expect(prisma.vehicle.findMany.mock.calls[0][0].where.customerId).toBeUndefined();
   });
 
+  it("finds a car by its owner's phone, however it's typed", async () => {
+    const { prisma, vehicles } = setup();
+
+    await vehicles.list(advisor, { q: "081-555-0101", page: 1, pageSize: 20 });
+    await vehicles.list(advisor, { q: "0815550101", page: 1, pageSize: 20 });
+    await vehicles.list(advisor, { q: "Ploy", page: 1, pageSize: 20 });
+
+    const [dashed, plain, name] = prisma.vehicle.findMany.mock.calls.map((call) => call[0].where.AND[0].OR);
+    expect(dashed).toContainEqual({ customer: { phone: { contains: "815550101" } } });
+    expect(plain).toContainEqual({ customer: { phone: { contains: "815550101" } } });
+    // A word with no digits isn't treated as a phone number.
+    expect(name).not.toContainEqual(expect.objectContaining({ customer: { phone: expect.anything() } }));
+  });
+
   it("matches nothing for a customer login that has no linked record", async () => {
     const { prisma, vehicles } = setup();
 

@@ -159,6 +159,43 @@ export function ReportDashboard({
         <Section title="Top parts by quantity">
           <PartsTable rows={parts.topByQuantity} />
         </Section>
+
+        <Section title="Most common labour lines" aside="Typed freely, so grouped by wording">
+          {jobs.topLabour.length === 0 ? (
+            <EmptyState title="No labour billed in this period" />
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="pb-2">Labour line</th>
+                  <th className="pb-2 text-right">Times</th>
+                  <th className="pb-2 text-right">Billed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {jobs.topLabour.map((line) => (
+                  <tr key={line.description}>
+                    <td className="py-2">{line.description}</td>
+                    <td className="py-2 text-right">{line.count}</td>
+                    <td className="py-2 text-right">{formatTHB(line.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Section>
+
+        <Section title="Inventory turnover" aside="In this period">
+          <dl className="divide-y divide-slate-100">
+            <Stat label="Turnover" value={parts.turnover === null ? "—" : `${parts.turnover.toFixed(2)}×`} />
+            <Stat label="Parts used (at today's cost)" value={formatTHB(parts.costOfPartsUsed)} />
+            <Stat label="Stock value at cost (today)" value={formatTHB(parts.stockValueAtCost)} />
+          </dl>
+          <p className="mt-2 text-xs text-slate-500">
+            How many times the stock on hand was used up in this period. Parts used are valued at today&apos;s unit cost, because a
+            job records the price charged, not the cost at the time.
+          </p>
+        </Section>
       </div>
 
       <Section title="Right now" aside="Not limited to the dates above">

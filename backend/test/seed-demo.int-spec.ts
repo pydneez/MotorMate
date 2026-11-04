@@ -124,6 +124,8 @@ describe("demo seed", () => {
     expect(body.revenue.series.filter((month: { count: number }) => month.count > 0).length).toBeGreaterThanOrEqual(5);
     expect(body.jobs.mechanics).toHaveLength(2);
     expect(body.bookings.repeatCustomers).toBeGreaterThan(0);
+    expect(body.parts.turnover).toBeGreaterThan(0);
+    expect(body.jobs.topLabour.length).toBeGreaterThanOrEqual(5);
     const states = await prisma.serviceRecommendation.groupBy({ by: ["status"], _count: { _all: true } });
     expect(states.map((s) => s.status).sort()).toEqual(["DISMISSED", "OPEN", "REMINDED"]);
   });

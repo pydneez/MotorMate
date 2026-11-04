@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSession } from "next-auth/react";
 import { UserRound, X } from "lucide-react";
 import {
   WalkInCheckInSchema,
+  type CustomerDetail,
   type CustomerDuplicates,
   type CustomerSummary,
   type MechanicOption,
   type VehicleDuplicates,
+  type VehicleSummary,
   type WorkOrderDetail,
 } from "@motormate/types";
 import { Alert, Button, Field, LinkButton, SelectField, TextAreaField } from "@/components/ui";
@@ -26,16 +29,20 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
  * Walk-in check-in on one screen: customer (new, or an existing one found by phone), their new
  * car, and the visit. Saved in one request, so nothing is half-created if e.g. the VIN is taken.
  */
-export function WalkInForm({ mechanics }: { mechanics: MechanicOption[] }) {
+export function WalkInForm({ mechanics, initialPhone }: { mechanics: MechanicOption[]; initialPhone?: string }) {
   const router = useRouter();
   const callApi = useApi();
   const { fieldErrors, error, submitting, validate, submit } = useFormSubmit();
   const [customer, setCustomer] = useState<CustomerSummary | null>(null);
+  const [customerVehicles, setCustomerVehicles] = useState<VehicleSummary[]>([]);
   const [phoneMatches, setPhoneMatches] = useState<CustomerSummary[]>([]);
   const [emailTaken, setEmailTaken] = useState<CustomerSummary | null>(null);
   const [vehicleDuplicates, setVehicleDuplicates] = useState<VehicleDuplicates | null>(null);
   const latestCustomerCheck = useRef(0);
   const latestVehicleCheck = useRef(0);
+  const checkedInitialPhone = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const { status } = useSession();
 
   async function checkCustomer(form: HTMLFormElement | null) {
     if (!form) return;
@@ -82,6 +89,13 @@ export function WalkInForm({ mechanics }: { mechanics: MechanicOption[] }) {
     setCustomer(match);
     setPhoneMatches([]);
     setEmailTaken(null);
+    setCustomerVehicles([]);
+    // Their cars, so a returning customer's known car is checked in directly, not re-registered.
+    if (match.vehicleCount > 0) {
+      callApi<CustomerDetail>(`/customers/${match.id}`)
+        .then((detail) => setCustomerVehicles(detail.vehicles))
+        .catch(() => setCustomerVehicles([]));
+    }
   }
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -95,15 +109,25 @@ export function WalkInForm({ mechanics }: { mechanics: MechanicOption[] }) {
     }
   }
 
+  // Arriving with ?phone= (from a search that found no car): look the number up once signed-in
+  // requests can be made. The ref keeps the effect from re-running on every render.
+  const checkCustomerRef = useRef(checkCustomer);
+  checkCustomerRef.current = checkCustomer;
+  useEffect(() => {
+    if (status !== "authenticated" || !initialPhone || checkedInitialPhone.current) return;
+    checkedInitialPhone.current = true;
+    checkCustomerRef.current(formRef.current);
+  }, [status, initialPhone]);
+
   const onCustomerBlur = (event: React.FocusEvent<HTMLInputElement>) => checkCustomer(event.currentTarget.form);
   const onVehicleBlur = (event: React.SyntheticEvent<HTMLInputElement | HTMLSelectElement>) => checkVehicle(event.currentTarget.form);
 
   return (
-    <form onSubmit={onSubmit} noValidate className="space-y-6">
+    <form ref={formRef} onSubmit={onSubmit} noValidate className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2">
         <SectionTitle>Customer</SectionTitle>
         {customer ? (
-          <div className="flex items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
+          <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 p-3 sm:col-span-2">
             <div className="flex gap-3 text-sm">
               <UserRound className="mt-0.5 h-5 w-5 text-slate-400" aria-hidden />
               <div>
@@ -116,6 +140,24 @@ export function WalkInForm({ mechanics }: { mechanics: MechanicOption[] }) {
             <button type="button" onClick={() => setCustomer(null)} aria-label="Enter a new customer instead" className="rounded p-1 text-slate-400 hover:bg-slate-200">
               <X className="h-4 w-4" />
             </button>
+            {customerVehicles.length > 0 && (
+              <div className="w-full basis-full text-sm">
+                <p className="font-medium text-slate-700">Is it one of these cars?</p>
+                <ul className="mt-1 space-y-1">
+                  {customerVehicles.map((vehicle) => (
+                    <li key={vehicle.id} className="flex flex-wrap items-center justify-between gap-2">
+                      <span>
+                        {vehicle.make} {vehicle.model} · {vehicle.plate} {vehicle.province}
+                      </span>
+                      <LinkButton href={`/app/work-orders/new?vehicleId=${vehicle.id}`} variant="success" className="px-3 py-1 text-xs">
+                        Check in this car
+                      </LinkButton>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1 text-xs text-slate-500">Otherwise, add the new car below.</p>
+              </div>
+            )}
           </div>
         ) : (
           <>
@@ -124,6 +166,7 @@ export function WalkInForm({ mechanics }: { mechanics: MechanicOption[] }) {
               name="phone"
               type="tel"
               placeholder="081-234-5678"
+              defaultValue={initialPhone}
               hint="Enter first — we'll look for an existing customer"
               onBlur={onCustomerBlur}
               error={fieldErrors.phone}

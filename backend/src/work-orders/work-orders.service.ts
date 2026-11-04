@@ -35,6 +35,7 @@ import type { z } from "zod";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { bangkokDayFilter } from "../common/utils/dates";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
+import { phoneSearchFragment } from "../common/utils/phone-search";
 import { StockService } from "../inventory/stock.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { toWorkOrderDetail, toWorkOrderSummary, workOrderDetailInclude, workOrderSummaryInclude } from "./work-order.mapper";
@@ -91,6 +92,8 @@ export class WorkOrdersService {
         if (number !== null) or.push({ number });
         const plate = normalizePlate(token);
         if (plate) or.push({ vehicle: { plateNormalized: { contains: plate } } });
+        const phone = phoneSearchFragment(token);
+        if (phone) or.push({ vehicle: { customer: { phone: { contains: phone } } } });
         return { OR: or };
       }),
     };
