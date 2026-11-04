@@ -1,8 +1,9 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Optional } from "@nestjs/common";
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { invoicePdfFilename, type AuthUser, type InvoicePdfLink } from "@motormate/types";
+import { DEFAULT_SHOP_DETAILS, invoicePdfFilename, type AuthUser, type InvoicePdfLink } from "@motormate/types";
 import { PrismaService } from "../prisma/prisma.service";
+import { SettingsService } from "../settings/settings.service";
 import { renderInvoicePdf } from "./invoice-pdf.renderer";
 import { InvoicesService } from "./invoices.service";
 
@@ -26,6 +27,7 @@ export class InvoicePdfService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly invoices: InvoicesService,
+    @Optional() private readonly settings?: SettingsService,
   ) {}
 
   async link(user: AuthUser, id: string): Promise<InvoicePdfLink> {
@@ -33,7 +35,7 @@ export class InvoicePdfService {
     const filename = invoicePdfFilename(invoice.number);
 
     if (!this.bucket) {
-      const pdf = await renderInvoicePdf(invoice);
+      const pdf = await renderInvoicePdf(invoice, (await this.settings?.shop()) ?? DEFAULT_SHOP_DETAILS);
       return { url: `data:application/pdf;base64,${pdf.toString("base64")}`, filename };
     }
 
@@ -41,7 +43,7 @@ export class InvoicePdfService {
     let key = stored?.pdfKey ?? null;
     if (!key || !(await this.exists(key))) {
       key = `invoices/${id}/${filename}`;
-      const pdf = await renderInvoicePdf(invoice);
+      const pdf = await renderInvoicePdf(invoice, (await this.settings?.shop()) ?? DEFAULT_SHOP_DETAILS);
       await this.s3().send(
         new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: pdf, ContentType: "application/pdf" }),
       );
