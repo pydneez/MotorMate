@@ -44,10 +44,10 @@ describe("appointment rules (packages/types)", () => {
   it("validates a booking request, putting time problems on the time field", () => {
     jest.useFakeTimers().setSystemTime(NOW);
     try {
-      const sunday = CreateAppointmentSchema.safeParse({ vehicleId: "v1", date: "2026-10-25", time: "10:00", reason: "Oil change" });
+      const sunday = CreateAppointmentSchema.safeParse({ vehicleId: "v1", date: "2026-10-25", time: "10:00", serviceIds: [], reason: "Oil change" });
       expect(sunday.success).toBe(false);
       expect(sunday.error?.flatten().fieldErrors.time?.[0]).toMatch(/Mon–Sat/);
-      expect(CreateAppointmentSchema.safeParse({ vehicleId: "v1", date: "2026-10-22", time: "10:00", reason: " " }).success).toBe(false);
+      expect(CreateAppointmentSchema.safeParse({ vehicleId: "v1", date: "2026-10-22", time: "10:00", serviceIds: [], reason: " " }).success).toBe(false);
     } finally {
       jest.useRealTimers();
     }
@@ -83,6 +83,7 @@ describe("AppointmentsService", () => {
     customer: { id: "cust-1", firstName: "Jordan", lastName: "Lee", phone: "+66812345678" },
     vehicle: { id: "veh-1", plate: "1กข 1234", province: "กรุงเทพมหานคร", make: "Honda", model: "Civic", year: 2019 },
     workOrder: null,
+    services: [],
     createdAt: NOW,
     ...overrides,
   });
@@ -101,21 +102,57 @@ describe("AppointmentsService", () => {
     prisma.appointment.findFirst.mockResolvedValueOnce(null).mockResolvedValue(row());
     prisma.appointment.create.mockResolvedValue({ id: "appt-1", scheduledAt: at("2026-10-22", "10:00") });
 
-    await appointments.create(customer, { vehicleId: "veh-1", date: "2026-10-22", time: "10:00", reason: "Brake inspection" });
+    await appointments.create(customer, { vehicleId: "veh-1", date: "2026-10-22", time: "10:00", serviceIds: [], reason: "Brake inspection" });
     expect(prisma.appointment.create.mock.calls[0][0].data).toEqual(
       expect.objectContaining({ customerId: "cust-1", status: "REQUESTED", scheduledAt: at("2026-10-22", "10:00"), createdById: "user-c" }),
     );
 
     prisma.appointment.findFirst.mockResolvedValueOnce(null);
-    await appointments.create(advisor, { vehicleId: "veh-1", date: "2026-10-22", time: "11:00", reason: "Oil change" });
+    await appointments.create(advisor, { vehicleId: "veh-1", date: "2026-10-22", time: "11:00", serviceIds: [], reason: "Oil change" });
     expect(prisma.appointment.create.mock.calls[1][0].data.status).toBe("CONFIRMED");
+  });
+
+  it("snapshots the services picked, and names the visit after them when no reason is given", async () => {
+    const { prisma, appointments } = setup();
+    prisma.vehicle.findUnique.mockResolvedValue({ id: "veh-1", customerId: "cust-1" });
+    prisma.appointment.findFirst.mockResolvedValueOnce(null).mockResolvedValue(row());
+    prisma.appointment.create.mockResolvedValue({ id: "appt-1", scheduledAt: at("2026-10-22", "10:00") });
+    prisma.serviceCatalogItem.findMany.mockResolvedValue([
+      { id: "svc-bat", name: "Battery check", price: 200 },
+      { id: "svc-oil", name: "Oil change", price: 450 },
+    ]);
+
+    await appointments.create(customer, { vehicleId: "veh-1", date: "2026-10-22", time: "10:00", serviceIds: ["svc-oil", "svc-bat", "svc-oil"], reason: "" });
+    expect(prisma.serviceCatalogItem.findMany.mock.calls[0][0].where).toEqual({ id: { in: ["svc-oil", "svc-bat"] }, isActive: true, bookable: true });
+    expect(prisma.appointment.create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({
+        reason: "Battery check, Oil change",
+        services: {
+          create: [
+            { catalogItemId: "svc-bat", name: "Battery check", price: 200 },
+            { catalogItemId: "svc-oil", name: "Oil change", price: 450 },
+          ],
+        },
+      }),
+    );
+  });
+
+  it("refuses a service that isn't available (deactivated, or not bookable for customers)", async () => {
+    const { prisma, appointments } = setup();
+    prisma.vehicle.findUnique.mockResolvedValue({ id: "veh-1", customerId: "cust-1" });
+    prisma.appointment.findFirst.mockResolvedValue(null);
+    prisma.serviceCatalogItem.findMany.mockResolvedValue([]);
+    await expect(
+      appointments.create(customer, { vehicleId: "veh-1", date: "2026-10-22", time: "10:00", serviceIds: ["svc-old"], reason: "" }),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.appointment.create).not.toHaveBeenCalled();
   });
 
   it("hides other people's vehicles from customers (404)", async () => {
     const { prisma, appointments } = setup();
     prisma.vehicle.findUnique.mockResolvedValue({ id: "veh-9", customerId: "cust-9" });
     await expect(
-      appointments.create(customer, { vehicleId: "veh-9", date: "2026-10-22", time: "10:00", reason: "x" }),
+      appointments.create(customer, { vehicleId: "veh-9", date: "2026-10-22", time: "10:00", serviceIds: [], reason: "x" }),
     ).rejects.toThrow(NotFoundException);
   });
 
@@ -124,7 +161,7 @@ describe("AppointmentsService", () => {
     prisma.vehicle.findUnique.mockResolvedValue({ id: "veh-1", customerId: "cust-1" });
     prisma.appointment.findFirst.mockResolvedValue({ scheduledAt: at("2026-10-23", "09:00") });
     await expect(
-      appointments.create(customer, { vehicleId: "veh-1", date: "2026-10-22", time: "10:00", reason: "x" }),
+      appointments.create(customer, { vehicleId: "veh-1", date: "2026-10-22", time: "10:00", serviceIds: [], reason: "x" }),
     ).rejects.toThrow(new ConflictException("This vehicle already has an appointment on 2026-10-23 at 09:00. Change or cancel that one instead."));
   });
 

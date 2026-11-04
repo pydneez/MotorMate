@@ -5,9 +5,12 @@ import {
   AddPartSchema,
   AddRecommendationSchema,
   allowedNextStatuses,
+  bangkokParts,
   calculateTotals,
   ChangePasswordSchema,
   CreateCustomerSchema,
+  CreateServiceSchema,
+  CreateAppointmentSchema,
   CreateWorkOrderSchema,
   parseWorkOrderNumber,
   WorkOrderListQuerySchema,
@@ -23,6 +26,8 @@ import {
   UpdateCustomerSchema,
   UpdateInventoryItemSchema,
   UpdateOwnCustomerSchema,
+  UpdateServiceSchema,
+  UpdateShopDetailsSchema,
   UpdateStaffSchema,
   UpdateVehicleSchema,
   WalkInCheckInSchema,
@@ -270,6 +275,12 @@ describe("form schemas accept their own output (browser → API round trip)", ()
     ["WalkInCheckInSchema (existing customer)", WalkInCheckInSchema, { customerId: "cust-1", firstName: "", lastName: "", phone: "", email: "", lineId: "", ...validVehicle, color: "", mileageIn: "45000", complaint: "Noise", mechanicId: "" }],
     ["AddRecommendationSchema (mileage only)", AddRecommendationSchema, { description: " Brake fluid ", dueMileage: "60000", dueDate: "" }],
     ["AddRecommendationSchema (date only)", AddRecommendationSchema, { description: "Timing belt", dueMileage: "", dueDate: "2027-06-01" }],
+    ["AddLabourSchema (custom line)", AddLabourSchema, { description: " Free up caliper ", laborCost: "650" }],
+    ["AddLabourSchema (from the list)", AddLabourSchema, { catalogItemId: "svc-oil" }],
+    ["AddLabourSchema (list price changed)", AddLabourSchema, { catalogItemId: "svc-oil", laborCost: "400.50" }],
+    ["CreateServiceSchema", CreateServiceSchema, { name: " Oil change ", category: "Maintenance", price: "500" }],
+    ["UpdateServiceSchema (deactivate)", UpdateServiceSchema, { isActive: false }],
+    ["UpdateShopDetailsSchema", UpdateShopDetailsSchema, { name: "Siam Garage", address: "1 Rama IV Road\nBangkok 10500", phone: "02 123 4567", email: "", taxId: "0105512345678" }],
   ];
 
   it.each(cases)("%s", (_name, schema, formInput) => {
@@ -486,5 +497,38 @@ describe("text and number field rules", () => {
     expect(validate(AddLabourSchema, { description: "Oil change", laborCost: " 450.50 " }).laborCost).toBe(450.5);
     expect(validate(ReceiveStockSchema, { quantity: 3 }).quantity).toBe(3);
     expect(validate(AddRecommendationSchema, { description: "Brakes", dueMileage: "", dueDate: "2027-01-01" }).dueMileage).toBeUndefined();
+  });
+});
+
+describe("settings and price list rules", () => {
+  const shop = { name: "Siam Garage", address: "1 Rama IV Road", phone: "021234567", email: "", taxId: "0-1055-12345-67-8" };
+
+  it("checks the shop's tax ID, phone and address", () => {
+    expect(validate(UpdateShopDetailsSchema, shop)).toEqual(expect.objectContaining({ phone: "+6621234567", taxId: "0-1055-12345-67-8" }));
+    expect(fieldErrors(UpdateShopDetailsSchema, { ...shop, taxId: "0-1055-12345" }).taxId).toEqual(["A Thai tax ID has 13 digits"]);
+    expect(fieldErrors(UpdateShopDetailsSchema, { ...shop, phone: "12345" }).phone).toBeDefined();
+    expect(fieldErrors(UpdateShopDetailsSchema, { ...shop, address: "a\nb\nc\nd\ne" }).address).toEqual(["Use at most 4 lines"]);
+  });
+
+  it("needs a description and cost for a custom labour line, not for a list one", () => {
+    expect(Object.keys(fieldErrors(AddLabourSchema, {})).sort()).toEqual(["description", "laborCost"]);
+    expect(validate(AddLabourSchema, { catalogItemId: "svc-oil" })).toEqual({ catalogItemId: "svc-oil" });
+  });
+
+  it("refuses an empty service update and a negative price", () => {
+    expect(() => validate(UpdateServiceSchema, {})).toThrow(BadRequestException);
+    expect(fieldErrors(CreateServiceSchema, { name: "Oil change", category: "Maintenance", price: "-1" }).price).toBeDefined();
+  });
+
+  it("books with services, a reason, or both — but not neither", () => {
+    const date = bangkokParts(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
+    const slot = { vehicleId: "v", date: date.date, time: "10:00" };
+    const errors = (value: object) => {
+      const result = CreateAppointmentSchema.safeParse(value);
+      return result.success ? {} : result.error.flatten().fieldErrors;
+    };
+    expect(errors({ ...slot, reason: "" }).reason).toEqual(["Pick a service or tell us what the visit is for"]);
+    expect(errors({ ...slot, reason: "1234" }).reason).toEqual(["Describe the visit in words"]);
+    expect(errors({ ...slot, serviceIds: ["svc-oil"] }).reason).toBeUndefined();
   });
 });
