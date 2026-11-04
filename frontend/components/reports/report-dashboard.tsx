@@ -116,24 +116,26 @@ export function ReportDashboard({
           {jobs.mechanics.length === 0 ? (
             <EmptyState title="No completed jobs with a mechanic" />
           ) : (
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="pb-2">Mechanic</th>
-                  <th className="pb-2 text-right">Jobs</th>
-                  <th className="pb-2 text-right">Labour billed</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {jobs.mechanics.map((mechanic) => (
-                  <tr key={mechanic.id}>
-                    <td className="py-2 font-medium">{mechanic.name}</td>
-                    <td className="py-2 text-right">{mechanic.completed}</td>
-                    <td className="py-2 text-right">{formatTHB(mechanic.labour)}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[360px] text-sm">
+                <thead className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="pb-2">Mechanic</th>
+                    <th className="pb-2 text-right">Jobs</th>
+                    <th className="pb-2 text-right">Labour billed</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {jobs.mechanics.map((mechanic) => (
+                    <tr key={mechanic.id}>
+                      <td className="py-2 font-medium">{mechanic.name}</td>
+                      <td className="py-2 text-right">{mechanic.completed}</td>
+                      <td className="py-2 text-right">{formatTHB(mechanic.labour)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Section>
 
@@ -164,24 +166,26 @@ export function ReportDashboard({
           {jobs.topLabour.length === 0 ? (
             <EmptyState title="No labour billed in this period" />
           ) : (
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="pb-2">Service</th>
-                  <th className="pb-2 text-right">Times</th>
-                  <th className="pb-2 text-right">Billed</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {jobs.topLabour.map((line) => (
-                  <tr key={line.description} className={line.custom ? "text-slate-500" : undefined}>
-                    <td className={line.custom ? "py-2 italic" : "py-2"}>{line.description}</td>
-                    <td className="py-2 text-right">{line.count}</td>
-                    <td className="py-2 text-right">{formatTHB(line.amount)}</td>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[360px] text-sm">
+                <thead className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="pb-2">Service</th>
+                    <th className="pb-2 text-right">Times</th>
+                    <th className="pb-2 text-right">Billed</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {jobs.topLabour.map((line) => (
+                    <tr key={line.description} className={line.custom ? "text-slate-500" : undefined}>
+                      <td className={line.custom ? "py-2 italic" : "py-2"}>{line.description}</td>
+                      <td className="py-2 text-right">{line.count}</td>
+                      <td className="py-2 text-right">{formatTHB(line.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </Section>
 

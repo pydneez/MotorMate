@@ -36,34 +36,36 @@ export default async function CustomersPage({ searchParams }: Props) {
         ) : (
           <>
             {/* Desktop table */}
-            <table className="hidden w-full text-sm md:table">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Name</th>
-                  <th className="px-4 py-3">Phone</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3 text-center">Vehicles</th>
-                  <th className="px-4 py-3 text-center">Portal</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.items.map((customer) => (
-                  <tr key={customer.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <Link href={`/app/customers/${customer.id}`} className="font-medium text-blue-700 hover:underline">
-                        {fullName(customer)}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{formatThaiPhone(customer.phone)}</td>
-                    <td className="px-4 py-3 text-slate-700">{customer.email ?? <span className="text-slate-400">—</span>}</td>
-                    <td className="px-4 py-3 text-center">{customer.vehicleCount}</td>
-                    <td className="px-4 py-3 text-center">
-                      {customer.hasPortalAccount ? <Badge tone="green">Active</Badge> : <span className="text-slate-400">—</span>}
-                    </td>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[680px] text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Name</th>
+                    <th className="px-4 py-3">Phone</th>
+                    <th className="px-4 py-3">Email</th>
+                    <th className="px-4 py-3 text-center">Vehicles</th>
+                    <th className="px-4 py-3 text-center">Portal</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.items.map((customer) => (
+                    <tr key={customer.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <Link href={`/app/customers/${customer.id}`} className="font-medium text-blue-700 hover:underline">
+                          {fullName(customer)}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{formatThaiPhone(customer.phone)}</td>
+                      <td className="px-4 py-3 text-slate-700">{customer.email ?? <span className="text-slate-400">—</span>}</td>
+                      <td className="px-4 py-3 text-center">{customer.vehicleCount}</td>
+                      <td className="px-4 py-3 text-center">
+                        {customer.hasPortalAccount ? <Badge tone="green">Active</Badge> : <span className="text-slate-400">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             {/* Mobile cards */}
             <ul className="divide-y divide-slate-100 md:hidden">

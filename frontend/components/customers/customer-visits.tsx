@@ -26,45 +26,47 @@ export function CustomerVisits({ customerId, data }: { customerId: string; data:
           </div>
         ) : (
           <>
-            <table className="hidden w-full text-sm lg:table">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-3 py-3">Checked in</th>
-                  <th className="px-3 py-3">Job</th>
-                  <th className="px-3 py-3">Vehicle</th>
-                  <th className="px-3 py-3">Complaint</th>
-                  <th className="px-3 py-3">Status</th>
-                  <th className="px-3 py-3 text-right">Invoice</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.items.map((visit) => (
-                  <tr key={visit.workOrderId} className="align-top hover:bg-slate-50">
-                    <td className="whitespace-nowrap px-3 py-3">{formatDate(visit.checkedInAt)}</td>
-                    <td className="whitespace-nowrap px-3 py-3">
-                      <Link href={`/app/work-orders/${visit.workOrderId}`} className="font-medium text-blue-700 hover:underline">
-                        {formatWorkOrderNumber(visit.number)}
-                      </Link>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3">
-                      <Link href={`/app/vehicles/${visit.vehicle.id}`} className="hover:underline">
-                        {visit.vehicle.plate}
-                      </Link>
-                      <span className="block text-xs text-slate-500">
-                        {visit.vehicle.make} {visit.vehicle.model}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-slate-700">{visit.complaint}</td>
-                    <td className="px-3 py-3">
-                      <WorkOrderStatusBadge status={visit.status} />
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right">
-                      <VisitInvoice visit={visit} />
-                    </td>
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full min-w-[640px] text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-3">Checked in</th>
+                    <th className="px-3 py-3">Job</th>
+                    <th className="px-3 py-3">Vehicle</th>
+                    <th className="px-3 py-3">Complaint</th>
+                    <th className="px-3 py-3">Status</th>
+                    <th className="px-3 py-3 text-right">Invoice</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.items.map((visit) => (
+                    <tr key={visit.workOrderId} className="align-top hover:bg-slate-50">
+                      <td className="whitespace-nowrap px-3 py-3">{formatDate(visit.checkedInAt)}</td>
+                      <td className="whitespace-nowrap px-3 py-3">
+                        <Link href={`/app/work-orders/${visit.workOrderId}`} className="font-medium text-blue-700 hover:underline">
+                          {formatWorkOrderNumber(visit.number)}
+                        </Link>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3">
+                        <Link href={`/app/vehicles/${visit.vehicle.id}`} className="hover:underline">
+                          {visit.vehicle.plate}
+                        </Link>
+                        <span className="block text-xs text-slate-500">
+                          {visit.vehicle.make} {visit.vehicle.model}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-slate-700">{visit.complaint}</td>
+                      <td className="px-3 py-3">
+                        <WorkOrderStatusBadge status={visit.status} />
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-3 text-right">
+                        <VisitInvoice visit={visit} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <ul className="divide-y divide-slate-100 lg:hidden">
               {data.items.map((visit) => (
                 <li key={visit.workOrderId} className="space-y-1 px-4 py-3 text-sm">

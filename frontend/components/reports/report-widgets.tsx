@@ -57,30 +57,32 @@ export function Stat({ label, value }: { label: string; value: React.ReactNode }
 export function PartsTable({ rows }: { rows: ReportPartRow[] }) {
   if (rows.length === 0) return <EmptyState title="No parts used in this period" />;
   return (
-    <table className="w-full text-sm">
-      <thead className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-        <tr>
-          <th className="pb-2">Part</th>
-          <th className="pb-2 text-right">Used</th>
-          <th className="pb-2 text-right">On hand</th>
-          <th className="pb-2 text-right">Revenue</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-slate-100">
-        {rows.map((part) => (
-          <tr key={part.id}>
-            <td className="py-2">
-              <Link href={`/app/inventory/${part.id}`} className="font-medium text-blue-700 hover:underline">
-                {part.name}
-              </Link>
-              <p className="text-xs text-slate-500">{part.sku}</p>
-            </td>
-            <td className="py-2 text-right">{part.quantity}</td>
-            <td className="py-2 text-right">{part.onHand}</td>
-            <td className="py-2 text-right">{formatTHB(part.revenue)}</td>
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[420px] text-sm">
+        <thead className="text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="pb-2">Part</th>
+            <th className="pb-2 text-right">Used</th>
+            <th className="pb-2 text-right">On hand</th>
+            <th className="pb-2 text-right">Revenue</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {rows.map((part) => (
+            <tr key={part.id}>
+              <td className="py-2">
+                <Link href={`/app/inventory/${part.id}`} className="font-medium text-blue-700 hover:underline">
+                  {part.name}
+                </Link>
+                <p className="text-xs text-slate-500">{part.sku}</p>
+              </td>
+              <td className="py-2 text-right">{part.quantity}</td>
+              <td className="py-2 text-right">{part.onHand}</td>
+              <td className="py-2 text-right">{formatTHB(part.revenue)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

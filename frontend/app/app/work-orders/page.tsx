@@ -70,42 +70,44 @@ export default async function WorkOrdersPage({ searchParams }: Props) {
           </div>
         ) : (
           <>
-            <table className="hidden w-full text-sm md:table">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Job</th>
-                  <th className="px-4 py-3">Vehicle</th>
-                  <th className="px-4 py-3">Customer</th>
-                  <th className="px-4 py-3">Mechanic</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Checked in</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.items.map((wo) => (
-                  <tr key={wo.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <Link href={`/app/work-orders/${wo.id}`} className="font-medium text-blue-700 hover:underline">
-                        {formatWorkOrderNumber(wo.number)}
-                      </Link>
-                      <p className="max-w-[16rem] truncate text-xs text-slate-500">{wo.complaint}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      {wo.vehicle.plate} <span className="text-slate-500">{wo.vehicle.province}</span>
-                      <p className="text-xs text-slate-500">
-                        {wo.vehicle.make} {wo.vehicle.model}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{wo.customer.name}</td>
-                    <td className="px-4 py-3 text-slate-700">{wo.mechanic?.name ?? <span className="text-slate-400">Unassigned</span>}</td>
-                    <td className="px-4 py-3">
-                      <WorkOrderStatusBadge status={wo.status} />
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{formatDate(wo.createdAt)}</td>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Job</th>
+                    <th className="px-4 py-3">Vehicle</th>
+                    <th className="px-4 py-3">Customer</th>
+                    <th className="px-4 py-3">Mechanic</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Checked in</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.items.map((wo) => (
+                    <tr key={wo.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <Link href={`/app/work-orders/${wo.id}`} className="font-medium text-blue-700 hover:underline">
+                          {formatWorkOrderNumber(wo.number)}
+                        </Link>
+                        <p className="max-w-[16rem] truncate text-xs text-slate-500">{wo.complaint}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        {wo.vehicle.plate} <span className="text-slate-500">{wo.vehicle.province}</span>
+                        <p className="text-xs text-slate-500">
+                          {wo.vehicle.make} {wo.vehicle.model}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{wo.customer.name}</td>
+                      <td className="px-4 py-3 text-slate-700">{wo.mechanic?.name ?? <span className="text-slate-400">Unassigned</span>}</td>
+                      <td className="px-4 py-3">
+                        <WorkOrderStatusBadge status={wo.status} />
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{formatDate(wo.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <ul className="divide-y divide-slate-100 md:hidden">
               {data.items.map((wo) => (
                 <li key={wo.id}>

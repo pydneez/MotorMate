@@ -64,34 +64,36 @@ export default async function VehiclesPage({ searchParams }: Props) {
           </div>
         ) : (
           <>
-            <table className="hidden w-full text-sm md:table">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Plate</th>
-                  <th className="px-4 py-3">Province</th>
-                  <th className="px-4 py-3">Vehicle</th>
-                  <th className="px-4 py-3">Owner</th>
-                  <th className="px-4 py-3 text-right">Mileage</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.items.map((vehicle) => (
-                  <tr key={vehicle.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <Link href={`/app/vehicles/${vehicle.id}`} className="font-medium text-blue-700 hover:underline">
-                        {vehicle.plate}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{vehicle.province}</td>
-                    <td className="px-4 py-3 text-slate-700">
-                      {vehicle.make} {vehicle.model} {vehicle.year}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">{fullName(vehicle.owner)}</td>
-                    <td className="px-4 py-3 text-right text-slate-700">{formatKm(vehicle.mileage)}</td>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[680px] text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Plate</th>
+                    <th className="px-4 py-3">Province</th>
+                    <th className="px-4 py-3">Vehicle</th>
+                    <th className="px-4 py-3">Owner</th>
+                    <th className="px-4 py-3 text-right">Mileage</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.items.map((vehicle) => (
+                    <tr key={vehicle.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <Link href={`/app/vehicles/${vehicle.id}`} className="font-medium text-blue-700 hover:underline">
+                          {vehicle.plate}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{vehicle.province}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        {vehicle.make} {vehicle.model} {vehicle.year}
+                      </td>
+                      <td className="px-4 py-3 text-slate-700">{fullName(vehicle.owner)}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{formatKm(vehicle.mileage)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <ul className="divide-y divide-slate-100 md:hidden">
               {data.items.map((vehicle) => (
                 <li key={vehicle.id}>
