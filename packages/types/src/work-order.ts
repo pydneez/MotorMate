@@ -234,10 +234,22 @@ export const ChangeWorkOrderStatusSchema = z.object({
 export type ChangeWorkOrderStatusInput = z.input<typeof ChangeWorkOrderStatusSchema>;
 
 /** A labour line on the job. */
-export const AddLabourSchema = z.object({
-  description: textWithLetters("Description", { max: 200, required: "Describe the work" }),
-  laborCost: money("Labour cost"),
-});
+/**
+ * A labour line: from the price list (catalogItemId — name and price come from the list; staff
+ * may change the price for this job), or a custom line (description + price, anyone who can
+ * edit the job; a mechanic's custom lines are checked by the advisor at QC).
+ */
+export const AddLabourSchema = z
+  .object({
+    catalogItemId: z.string().trim().min(1).optional(),
+    description: textWithLetters("Description", { max: 200, required: "Describe the work" }).optional(),
+    laborCost: money("Labour cost").optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.catalogItemId) return;
+    if (!value.description) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["description"], message: "Describe the work" });
+    if (value.laborCost === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["laborCost"], message: "Labour cost is required" });
+  });
 
 export type AddLabourInput = z.input<typeof AddLabourSchema>;
 
@@ -310,7 +322,15 @@ export type WorkOrderSummary = {
   completedAt: string | null;
 };
 
-export type WorkOrderLabourLine = { id: string; description: string; laborCost: number };
+export type WorkOrderLabourLine = {
+  id: string;
+  description: string;
+  laborCost: number;
+  /** Set when the line came from the price list; null = a custom line. */
+  catalogItemId: string | null;
+  /** Who added it (null on lines from before this was recorded). */
+  addedBy: { id: string; name: string; role: Role } | null;
+};
 
 export type WorkOrderPartLine = {
   id: string;
