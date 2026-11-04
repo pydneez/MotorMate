@@ -4,6 +4,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import * as bcrypt from "bcryptjs";
 import { bangkokParts, normalizePlate, normalizeThaiPhone, VAT_RATE } from "@motormate/types";
 import { pgConfig } from "../src/prisma/pg-config";
+import { upsertPriceList } from "./price-list";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg(pgConfig()) });
 
@@ -87,6 +88,9 @@ async function main() {
   }
   const [civic, , almera] = vehicles;
 
+  // ── Price list ─────────────────────────────────────────────────────────────
+  const priceList = await upsertPriceList(prisma);
+
   // ── Inventory ──────────────────────────────────────────────────────────────
   const inventorySeeds = [
     { sku: "OIL-5W30-4L", name: "Engine oil 5W-30 (4 L)", category: "Fluids", quantityOnHand: 24, unitCost: 650, unitPrice: 950, supplier: "Shell Thailand", reorderLevel: 10 },
@@ -139,7 +143,7 @@ async function main() {
             { fromStatus: "IN_PROGRESS", toStatus: "COMPLETED", changedById: mechanic.id, createdAt: completedAt },
           ],
         },
-        serviceItems: { create: [{ description: "Oil change labour", laborCost: labor }] },
+        serviceItems: { create: [{ description: "Oil change", laborCost: labor, catalogItemId: priceList.get("Oil change"), addedById: mechanic.id }] },
         partsUsed: {
           create: [
             { inventoryItemId: oil.id, quantity: 1, unitPrice: oil.unitPrice },

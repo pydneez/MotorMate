@@ -90,6 +90,7 @@ model User {
   statusChanges      WorkOrderStatusChange[]
   stockMovements     StockMovement[]
   auditLogs          AuditLog[]
+  addedServiceItems  ServiceItem[]           @relation("ServiceItemAddedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -213,12 +214,63 @@ model WorkOrderStatusChange {
 }
 
 model ServiceItem {
-  id          String    @id @default(cuid())
-  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
-  workOrderId String
-  description String
-  laborCost   Decimal   @db.Decimal(10, 2)
-  createdAt   DateTime  @default(now())
+  id            String              @id @default(cuid())
+  workOrder     WorkOrder           @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workOrderId   String
+  description   String
+  laborCost     Decimal             @db.Decimal(10, 2)
+  /// Set when the line came from the price list; description + laborCost are the snapshot.
+  catalogItem   ServiceCatalogItem? @relation(fields: [catalogItemId], references: [id])
+  catalogItemId String?
+  /// Who added the line (null on lines from before this was recorded).
+  addedBy       User?               @relation("ServiceItemAddedBy", fields: [addedById], references: [id])
+  addedById     String?
+  createdAt     DateTime            @default(now())
+
+  @@index([catalogItemId])
+}
+
+/// The fixed-price list of routine services (Settings → Services & prices). Never deleted.
+model ServiceCatalogItem {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  category  String
+  /// THB, excl. VAT.
+  price     Decimal  @db.Decimal(10, 2)
+  /// Customers can pick it when booking.
+  bookable  Boolean  @default(true)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serviceItems        ServiceItem[]
+  appointmentServices AppointmentService[]
+}
+
+/// A service picked when booking, with its name and price as they were then.
+model AppointmentService {
+  id            String             @id @default(cuid())
+  appointment   Appointment        @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointmentId String
+  catalogItem   ServiceCatalogItem @relation(fields: [catalogItemId], references: [id])
+  catalogItemId String
+  name          String
+  price         Decimal            @db.Decimal(10, 2)
+
+  @@unique([appointmentId, catalogItemId])
+}
+
+/// The shop's details on invoices, the PDF and emails (Settings → Shop details). One row, id 1.
+model ShopSettings {
+  id        Int      @id @default(1)
+  name      String
+  /// One line per row of the printed address.
+  address   String
+  /// E.164, like customer phones.
+  phone     String
+  email     String?
+  taxId     String
+  updatedAt DateTime @updatedAt
 }
 
 // ─── Inventory ───────────────────────────────────────────────────────────────
@@ -340,6 +392,7 @@ model Appointment {
   updatedAt   DateTime          @updatedAt
 
   notifications NotificationLog[]
+  services      AppointmentService[]
 
   @@index([scheduledAt])
   @@index([status])
