@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
   appointmentActions,
@@ -28,6 +28,8 @@ const SMALL = "px-2.5 py-1 text-xs";
  */
 export function AppointmentActions({ appointment, role }: { appointment: AppointmentSummary; role: Role }) {
   const router = useRouter();
+  // So the check-in page can send the advisor back to the same tab.
+  const searchParams = useSearchParams();
   const callApi = useApi();
   const { fieldErrors, error, submitting, validate, submit, setError } = useFormSubmit();
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -75,7 +77,7 @@ export function AppointmentActions({ appointment, role }: { appointment: Appoint
         </Button>
       )}
       {actions.includes("checkIn") && (
-        <LinkButton href={`/app/work-orders/new?appointment=${appointment.id}`} variant={ACTION_VARIANT.checkIn} className={SMALL}>
+        <LinkButton href={`/app/work-orders/new?appointment=${appointment.id}&from=${searchParams.get("view") ?? "upcoming"}`} variant={ACTION_VARIANT.checkIn} className={SMALL}>
           Check in
         </LinkButton>
       )}

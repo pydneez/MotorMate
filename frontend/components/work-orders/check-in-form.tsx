@@ -17,6 +17,12 @@ import { formValues, useApi, useFormSubmit } from "@/lib/client";
 import { formatKm, fullName } from "@/lib/format";
 
 /** Search vehicles by plate, VIN or owner and pick one. */
+/** "081-555-0101", "0815550101", "+66 81 …": mostly digits, at least 9 of them. */
+function looksLikePhone(text: string): boolean {
+  const trimmed = text.trim();
+  return /^[+\d][\d\s-]*$/.test(trimmed) && trimmed.replace(/\D/g, "").length >= 9;
+}
+
 export function VehiclePicker({ onPick }: { onPick: (vehicle: VehicleSummary) => void }) {
   const callApi = useApi();
   const [query, setQuery] = useState("");
@@ -49,7 +55,7 @@ export function VehiclePicker({ onPick }: { onPick: (vehicle: VehicleSummary) =>
           id="vehicle-search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search plate, VIN or customer…"
+          placeholder="Search plate, phone, VIN or customer…"
           autoComplete="off"
           className="block w-full rounded-md border border-slate-300 py-2 pl-9 pr-3 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
         />
@@ -76,11 +82,24 @@ export function VehiclePicker({ onPick }: { onPick: (vehicle: VehicleSummary) =>
       )}
       {query.trim().length >= 2 && results.length === 0 && (
         <p className="mt-1 text-xs text-slate-500">
-          No match.{" "}
-          <Link href="/app/work-orders/new?mode=walk-in" className="text-blue-700 underline">
-            Register a new customer &amp; vehicle
-          </Link>{" "}
-          and check in at once.
+          {looksLikePhone(query) ? (
+            <>
+              No car found for this phone.{" "}
+              {/* The walk-in form checks the number again, so an existing customer with a new car is still found. */}
+              <Link href={`/app/work-orders/new?mode=walk-in&phone=${encodeURIComponent(query.trim())}`} className="text-blue-700 underline">
+                Register the car (and customer if new)
+              </Link>{" "}
+              and check in at once.
+            </>
+          ) : (
+            <>
+              No match.{" "}
+              <Link href="/app/work-orders/new?mode=walk-in" className="text-blue-700 underline">
+                Register a new customer &amp; vehicle
+              </Link>{" "}
+              and check in at once.
+            </>
+          )}
         </p>
       )}
     </div>

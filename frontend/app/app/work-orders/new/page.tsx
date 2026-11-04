@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { AppointmentSummary, MechanicOption, VehicleDetail } from "@motormate/types";
-import { Card, PageHeader } from "@/components/ui";
+import { APPOINTMENT_VIEWS, bangkokParts, type AppointmentSummary, type MechanicOption, type VehicleDetail } from "@motormate/types";
+import { Alert, Card, PageHeader } from "@/components/ui";
 import { CheckInForm } from "@/components/work-orders/check-in-form";
 import { WalkInForm } from "@/components/work-orders/walk-in-form";
 import { formatAppointmentTime } from "@/lib/format";
 import { requireSession, serverGet } from "@/lib/server";
 
-type Props = { searchParams: { vehicleId?: string; mode?: string; appointment?: string } };
+type Props = { searchParams: { vehicleId?: string; mode?: string; appointment?: string; phone?: string; from?: string } };
 
 /**
  * Check in a known vehicle, a booked appointment (?appointment=…, vehicle and complaint
@@ -28,13 +28,26 @@ export default async function CheckInPage({ searchParams }: Props) {
   ]);
 
   if (appointment) {
+    // Back to the tab the advisor came from; a booking for another day gets a warning, since
+    // checking in the wrong one is easy from a long list.
+    const from = (APPOINTMENT_VIEWS as readonly string[]).includes(searchParams.from ?? "") ? searchParams.from : "today";
+    const bookedDay = bangkokParts(appointment.scheduledAt).date;
+    const notToday = bookedDay !== bangkokParts(new Date()).date;
     return (
       <div className="mx-auto max-w-2xl">
         <PageHeader
           title="Check in appointment"
-          back={{ href: "/app/appointments?view=today", label: "Appointments" }}
-          subtitle={`${appointment.customer.name} · booked for ${formatAppointmentTime(appointment.scheduledAt)}`}
+          back={{ href: `/app/appointments?view=${from}`, label: "Appointments" }}
+          subtitle={`Booked for ${formatAppointmentTime(appointment.scheduledAt)}`}
         />
+        {notToday && (
+          <div className="mb-4">
+            <Alert tone="warning">
+              This booking is for {formatAppointmentTime(appointment.scheduledAt)}, not today. Check it&apos;s the right customer
+              and car before checking in.
+            </Alert>
+          </div>
+        )}
         <Card className="p-6">
           <CheckInForm initialVehicle={vehicle} mechanics={mechanics} appointment={{ id: appointment.id, reason: appointment.reason }} />
         </Card>
@@ -59,7 +72,7 @@ export default async function CheckInPage({ searchParams }: Props) {
           )
         }
       />
-      <Card className="p-6">{walkIn ? <WalkInForm mechanics={mechanics} /> : <CheckInForm initialVehicle={vehicle} mechanics={mechanics} />}</Card>
+      <Card className="p-6">{walkIn ? <WalkInForm mechanics={mechanics} initialPhone={searchParams.phone} /> :<CheckInForm initialVehicle={vehicle} mechanics={mechanics} />}</Card>
     </div>
   );
 }
