@@ -70,37 +70,39 @@ export default async function InventoryPage({ searchParams }: Props) {
           </div>
         ) : (
           <>
-            <table className="hidden w-full text-sm md:table">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <SortHeader column="sku" label="SKU" {...sortProps} />
-                  <SortHeader column="name" label="Name" {...sortProps} />
-                  <th className="px-4 py-3">Category</th>
-                  <SortHeader column="quantity" label="On hand" align="right" {...sortProps} />
-                  <SortHeader column="price" label="Price" align="right" {...sortProps} />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.items.map((item) => (
-                  <tr key={item.id} className={item.isActive ? "hover:bg-slate-50" : "bg-slate-50 text-slate-400"}>
-                    <td className="px-4 py-3 font-mono text-xs">
-                      <Link href={`/app/inventory/${item.id}`} className="font-medium text-blue-700 hover:underline">
-                        {item.sku}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3">
-                      {item.name}
-                      {!item.isActive && <span className="ml-2"><Badge>Deactivated</Badge></span>}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{item.category}</td>
-                    <td className="px-4 py-3 text-right">
-                      <OnHand item={item} />
-                    </td>
-                    <td className="px-4 py-3 text-right">{formatTHB(item.unitPrice)}</td>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <SortHeader column="sku" label="SKU" {...sortProps} />
+                    <SortHeader column="name" label="Name" {...sortProps} />
+                    <th className="px-4 py-3">Category</th>
+                    <SortHeader column="quantity" label="On hand" align="right" {...sortProps} />
+                    <SortHeader column="price" label="Price" align="right" {...sortProps} />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.items.map((item) => (
+                    <tr key={item.id} className={item.isActive ? "hover:bg-slate-50" : "bg-slate-50 text-slate-400"}>
+                      <td className="px-4 py-3 font-mono text-xs">
+                        <Link href={`/app/inventory/${item.id}`} className="font-medium text-blue-700 hover:underline">
+                          {item.sku}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3">
+                        {item.name}
+                        {!item.isActive && <span className="ml-2"><Badge>Deactivated</Badge></span>}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{item.category}</td>
+                      <td className="px-4 py-3 text-right">
+                        <OnHand item={item} />
+                      </td>
+                      <td className="px-4 py-3 text-right">{formatTHB(item.unitPrice)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <ul className="divide-y divide-slate-100 md:hidden">
               {data.items.map((item) => (
                 <li key={item.id}>

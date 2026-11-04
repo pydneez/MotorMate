@@ -225,6 +225,9 @@ model ServiceItem {
   /// Who added the line (null on lines from before this was recorded).
   addedBy       User?               @relation("ServiceItemAddedBy", fields: [addedById], references: [id])
   addedById     String?
+  /// When staff changed a list price on this line: the list price then, and why.
+  listPrice     Decimal?            @db.Decimal(10, 2)
+  priceReason   String?
   createdAt     DateTime            @default(now())
 
   @@index([catalogItemId])

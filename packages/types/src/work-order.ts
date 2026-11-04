@@ -236,7 +236,7 @@ export type ChangeWorkOrderStatusInput = z.input<typeof ChangeWorkOrderStatusSch
 /** A labour line on the job. */
 /**
  * A labour line: from the price list (catalogItemId — name and price come from the list; staff
- * may change the price for this job), or a custom line (description + price, anyone who can
+ * may change the price for this job, giving a reason), or a custom line (description + price, anyone who can
  * edit the job; a mechanic's custom lines are checked by the advisor at QC).
  */
 export const AddLabourSchema = z
@@ -244,6 +244,8 @@ export const AddLabourSchema = z
     catalogItemId: z.string().trim().min(1).optional(),
     description: textWithLetters("Description", { max: 200, required: "Describe the work" }).optional(),
     laborCost: money("Labour cost").optional(),
+    /** Required by the API when staff change a list price (it knows the list price, the form may not). */
+    priceReason: textWithLetters("Reason", { max: 200, required: "Say why the price is different" }).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.catalogItemId) return;
@@ -330,6 +332,8 @@ export type WorkOrderLabourLine = {
   catalogItemId: string | null;
   /** Who added it (null on lines from before this was recorded). */
   addedBy: { id: string; name: string; role: Role } | null;
+  /** Set when staff changed the list price on this line: the list price then, and why. */
+  priceChange: { listPrice: number; reason: string } | null;
 };
 
 export type WorkOrderPartLine = {

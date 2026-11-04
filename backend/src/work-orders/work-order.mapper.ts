@@ -69,6 +69,7 @@ export function toWorkOrderDetail(row: DetailRow): WorkOrderDetail {
     laborCost: item.laborCost.toNumber(),
     catalogItemId: item.catalogItemId,
     addedBy: item.addedBy ? { id: item.addedBy.id, name: name(item.addedBy), role: item.addedBy.role as Role } : null,
+    priceChange: item.listPrice !== null && item.priceReason !== null ? { listPrice: item.listPrice.toNumber(), reason: item.priceReason } : null,
   }));
   const parts = row.partsUsed.map((part) => {
     const unitPrice = part.unitPrice.toNumber();

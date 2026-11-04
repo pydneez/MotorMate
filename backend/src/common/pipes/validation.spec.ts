@@ -277,7 +277,7 @@ describe("form schemas accept their own output (browser → API round trip)", ()
     ["AddRecommendationSchema (date only)", AddRecommendationSchema, { description: "Timing belt", dueMileage: "", dueDate: "2027-06-01" }],
     ["AddLabourSchema (custom line)", AddLabourSchema, { description: " Free up caliper ", laborCost: "650" }],
     ["AddLabourSchema (from the list)", AddLabourSchema, { catalogItemId: "svc-oil" }],
-    ["AddLabourSchema (list price changed)", AddLabourSchema, { catalogItemId: "svc-oil", laborCost: "400.50" }],
+    ["AddLabourSchema (list price changed)", AddLabourSchema, { catalogItemId: "svc-oil", laborCost: "400.50", priceReason: " Regular customer " }],
     ["CreateServiceSchema", CreateServiceSchema, { name: " Oil change ", category: "Maintenance", price: "500" }],
     ["UpdateServiceSchema (deactivate)", UpdateServiceSchema, { isActive: false }],
     ["UpdateShopDetailsSchema", UpdateShopDetailsSchema, { name: "Siam Garage", address: "1 Rama IV Road\nBangkok 10500", phone: "02 123 4567", email: "", taxId: "0105512345678" }],
@@ -513,6 +513,7 @@ describe("settings and price list rules", () => {
   it("needs a description and cost for a custom labour line, not for a list one", () => {
     expect(Object.keys(fieldErrors(AddLabourSchema, {})).sort()).toEqual(["description", "laborCost"]);
     expect(validate(AddLabourSchema, { catalogItemId: "svc-oil" })).toEqual({ catalogItemId: "svc-oil" });
+    expect(fieldErrors(AddLabourSchema, { catalogItemId: "svc-oil", laborCost: "400", priceReason: "123" }).priceReason).toBeDefined();
   });
 
   it("refuses an empty service update and a negative price", () => {

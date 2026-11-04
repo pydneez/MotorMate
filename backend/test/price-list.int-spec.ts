@@ -152,10 +152,17 @@ describe("booking services → the job's labour", () => {
     );
     const refused = await api(tokens.sam).post(`/work-orders/${workOrderId}/labour`, { catalogItemId: ids.oil, laborCost: 300 }).expect(400);
     expect(refused.body.errors.laborCost).toBeDefined();
-    const changed = await api(tokens.advisor).post(`/work-orders/${workOrderId}/labour`, { catalogItemId: ids.oil, laborCost: 400 }).expect(201);
-    expect(changed.body.labour.at(-1).laborCost).toBe(400);
+    const noReason = await api(tokens.advisor).post(`/work-orders/${workOrderId}/labour`, { catalogItemId: ids.oil, laborCost: 400 }).expect(400);
+    expect(noReason.body.errors.priceReason).toEqual(["Say why the price is different"]);
+    const changed = await api(tokens.advisor)
+      .post(`/work-orders/${workOrderId}/labour`, { catalogItemId: ids.oil, laborCost: 400, priceReason: " Regular customer " })
+      .expect(201);
+    expect(changed.body.labour.at(-1)).toEqual(
+      expect.objectContaining({ laborCost: 400, priceChange: { listPrice: 500, reason: "Regular customer" } }),
+    );
+    expect(listed.body.labour.at(-1).priceChange).toBeNull();
     const audit = await prisma.auditLog.findFirst({ where: { action: "workOrder.labourAdded" }, orderBy: { createdAt: "desc" } });
-    expect(audit?.changes).toEqual(expect.objectContaining({ laborCost: 400, listPrice: 500 }));
+    expect(audit?.changes).toEqual(expect.objectContaining({ laborCost: 400, listPrice: 500, priceReason: "Regular customer" }));
   });
 
   it("lets the assigned mechanic add a custom line, marked as such", async () => {

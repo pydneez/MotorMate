@@ -78,38 +78,40 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           </div>
         </div>
 
-        <table className="mt-6 w-full">
-          <thead className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="pb-2">Description</th>
-              <th className="pb-2 pl-3 text-right">Qty</th>
-              <th className="pb-2 pl-3 text-right">Unit price</th>
-              <th className="pb-2 pl-3 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {invoice.labour.map((line) => (
-              <tr key={line.id}>
-                <td className="py-2">
-                  {line.description} <span className="text-xs text-slate-500">(labour)</span>
-                </td>
-                <td className="py-2 pl-3 text-right">1</td>
-                <td className="py-2 pl-3 text-right">{formatTHB(line.laborCost)}</td>
-                <td className="py-2 pl-3 text-right">{formatTHB(line.laborCost)}</td>
+        <div className="mt-6 overflow-x-auto print:overflow-visible">
+          <table className="w-full min-w-[480px] print:min-w-0">
+            <thead className="border-b border-slate-200 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="pb-2">Description</th>
+                <th className="pb-2 pl-3 text-right">Qty</th>
+                <th className="pb-2 pl-3 text-right">Unit price</th>
+                <th className="pb-2 pl-3 text-right">Amount</th>
               </tr>
-            ))}
-            {invoice.parts.map((part) => (
-              <tr key={part.id}>
-                <td className="py-2">
-                  {part.name} <span className="text-xs text-slate-500">{part.sku}</span>
-                </td>
-                <td className="py-2 pl-3 text-right">{part.quantity}</td>
-                <td className="py-2 pl-3 text-right">{formatTHB(part.unitPrice)}</td>
-                <td className="py-2 pl-3 text-right">{formatTHB(part.lineTotal)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {invoice.labour.map((line) => (
+                <tr key={line.id}>
+                  <td className="py-2">
+                    {line.description} <span className="text-xs text-slate-500">(labour)</span>
+                  </td>
+                  <td className="py-2 pl-3 text-right">1</td>
+                  <td className="py-2 pl-3 text-right">{formatTHB(line.laborCost)}</td>
+                  <td className="py-2 pl-3 text-right">{formatTHB(line.laborCost)}</td>
+                </tr>
+              ))}
+              {invoice.parts.map((part) => (
+                <tr key={part.id}>
+                  <td className="py-2">
+                    {part.name} <span className="text-xs text-slate-500">{part.sku}</span>
+                  </td>
+                  <td className="py-2 pl-3 text-right">{part.quantity}</td>
+                  <td className="py-2 pl-3 text-right">{formatTHB(part.unitPrice)}</td>
+                  <td className="py-2 pl-3 text-right">{formatTHB(part.lineTotal)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         <dl className="ml-auto mt-4 w-full max-w-xs space-y-1 border-t border-slate-200 pt-3">
           <div className="flex justify-between"><dt className="text-slate-500">Subtotal</dt><dd>{formatTHB(invoice.subtotal)}</dd></div>

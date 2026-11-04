@@ -74,42 +74,44 @@ export default async function InvoicesPage({ searchParams }: Props) {
           </div>
         ) : (
           <>
-            <table className="hidden w-full text-sm md:table">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Invoice</th>
-                  <th className="px-4 py-3">Vehicle</th>
-                  {!isCustomer && <th className="px-4 py-3">Customer</th>}
-                  <th className="px-4 py-3">Issued</th>
-                  <th className="px-4 py-3 text-right">Total</th>
-                  <th className="px-4 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.items.map((invoice) => (
-                  <tr key={invoice.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <Link href={`/app/invoices/${invoice.id}`} className="font-medium text-blue-700 hover:underline">
-                        {formatInvoiceNumber(invoice.number)}
-                      </Link>
-                      <p className="text-xs text-slate-500">{formatWorkOrderNumber(invoice.workOrder.number)}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      {invoice.vehicle.plate} <span className="text-slate-500">{invoice.vehicle.province}</span>
-                      <p className="text-xs text-slate-500">
-                        {invoice.vehicle.make} {invoice.vehicle.model}
-                      </p>
-                    </td>
-                    {!isCustomer && <td className="px-4 py-3 text-slate-700">{invoice.customer.name}</td>}
-                    <td className="px-4 py-3 text-slate-600">{formatDate(invoice.issuedAt)}</td>
-                    <td className="px-4 py-3 text-right font-medium">{formatTHB(invoice.total)}</td>
-                    <td className="px-4 py-3">
-                      <InvoiceStatusBadge status={invoice.status} />
-                    </td>
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Invoice</th>
+                    <th className="px-4 py-3">Vehicle</th>
+                    {!isCustomer && <th className="px-4 py-3">Customer</th>}
+                    <th className="px-4 py-3">Issued</th>
+                    <th className="px-4 py-3 text-right">Total</th>
+                    <th className="px-4 py-3">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.items.map((invoice) => (
+                    <tr key={invoice.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3">
+                        <Link href={`/app/invoices/${invoice.id}`} className="font-medium text-blue-700 hover:underline">
+                          {formatInvoiceNumber(invoice.number)}
+                        </Link>
+                        <p className="text-xs text-slate-500">{formatWorkOrderNumber(invoice.workOrder.number)}</p>
+                      </td>
+                      <td className="px-4 py-3">
+                        {invoice.vehicle.plate} <span className="text-slate-500">{invoice.vehicle.province}</span>
+                        <p className="text-xs text-slate-500">
+                          {invoice.vehicle.make} {invoice.vehicle.model}
+                        </p>
+                      </td>
+                      {!isCustomer && <td className="px-4 py-3 text-slate-700">{invoice.customer.name}</td>}
+                      <td className="px-4 py-3 text-slate-600">{formatDate(invoice.issuedAt)}</td>
+                      <td className="px-4 py-3 text-right font-medium">{formatTHB(invoice.total)}</td>
+                      <td className="px-4 py-3">
+                        <InvoiceStatusBadge status={invoice.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
             <ul className="divide-y divide-slate-100 md:hidden">
               {data.items.map((invoice) => (
                 <li key={invoice.id}>

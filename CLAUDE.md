@@ -256,10 +256,12 @@ schema before calling the API. List search and paging live in the URL.
     409 (invoice is unique per job).
   - **Labour lines** come from the **price list** (Settings → Services & prices) or are
     **custom** ("middle way", Step 12): picking a service fills its name and today's price.
-    Advisors/admins may change a list price on the line (the audit entry keeps `listPrice`);
-    a mechanic can't (400) but may add custom lines on their own job. The **Pass QC &
-    invoice** dialog lists custom lines a mechanic added, so the advisor checks those prices
-    before invoicing. A deactivated service can't be picked. Lines show "Price list" or
+    Advisors/admins may change a list price on the line with a **required reason** (400 on
+    `priceReason` without one); the line keeps `listPrice` + `priceReason` (shown as "changed
+    from ฿X — reason") and so does the audit entry. A mechanic can't change one (400) but may
+    add custom lines on their own job. The **Pass QC & invoice** dialog lists the mechanic's
+    custom lines and every changed list price, so the advisor checks them before invoicing.
+    Invoices show only the final price. A deactivated service can't be picked. Lines show "Price list" or
     "Custom · added by …".
   - **Recommendations** ("Brake pads check at 80,000 km") are added by staff or the assigned
     mechanic while the job is open: due mileage must be above this visit's, due date after
@@ -492,12 +494,13 @@ the build has followed so far — keep them.
 / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments, reminder
 engine), reports (PR #21), list filters + sorting (PR #22), status buttons / colours /
 appointment filters (PR #23), customer Visits list (PR #24; the customer-side "My visits",
-135, was dropped — invoices + vehicle history cover it). Step 10 — demo readiness (demo seed,
-wider smoke test, end-to-end hand-off; Jira 158–161) — is on `chore/demo-readiness`;
-Step 11 — check-in journey fixes + inventory turnover / labour lines in Reports (162–164) — is
-stacked on it as `feat/check-in-journey`; Step 12 — Settings page: shop details + the price
-list, used by labour lines, bookings and Reports (136–140, 165) — is stacked on that as
-`feat/price-list`. **Next:** the dev-account rehearsal (160), the final document, demo
+135, was dropped — invoices + vehicle history cover it), Step 10 — demo readiness (demo seed,
+wider smoke test, end-to-end hand-off; Jira 158–161), Step 11 — check-in journey fixes +
+inventory turnover / labour lines in Reports (162–164; PR #26) and Step 12 — Settings page:
+shop details + the price list, used by labour lines, bookings and Reports (136–140, 165;
+PR #27). Step 13 — a required reason when staff change a list price, and the customer's My
+appointments page at the same width as the other pages (166–167) — is on
+`feat/price-reason`. **Next:** the dev-account rehearsal (160), the final document, demo
 account deploy (Nov 8–10, `seed.sh --demo`), code freeze Nov 10.
 
 **Commits and PRs**
