@@ -593,6 +593,13 @@ pnpm lint                      # ESLint: backend (eslint.config.mjs, ESLint 9) +
   image, `docker build -f backend/Dockerfile --target migrate`, once per deploy before the
   API rolls out. The seed is compiled into the API image: `node dist-seed/prisma/seed.js`.
   Whole app in containers locally: `docker compose --profile app up --build`.
+- **Image size** (unpacked / compressed in ECR): backend 299 / 66 MB, migrate 381 / 91 MB,
+  frontend 229 / 58 MB. All three run on a bare `alpine:3.24` with only the `node` binary
+  copied from `node:22-alpine3.24` (no npm/yarn/corepack; keep the two Alpine versions in
+  step). The migrate image's Prisma CLI is pruned (Studio UI, PGlite, MySQL, other
+  databases' compilers — the CLI still requires `@prisma/studio-core` and `@prisma/dev`
+  at start-up, so those stay). After a Prisma upgrade, re-check by running the migrate
+  image against an empty database.
 
 Seeded logins (password `password123`): `admin@`, `advisor@`, `mechanic@motormate.example`,
 customer `jordan.lee@example.com`.
