@@ -23,7 +23,7 @@ Deadline: code freeze **Nov 10, 2026**, final presentation **Nov 17, 2026**.
 | Backend | NestJS, TypeScript |
 | ORM | Prisma |
 | Database | PostgreSQL — Docker locally, Amazon RDS in staging/prod |
-| Hosting | Both apps as Docker containers on AWS ECS Fargate behind **one** Application Load Balancer (`/v1/*` → backend, 2 tasks; everything else → frontend, 1 task), images in ECR. HTTPS from an API Gateway HTTP API in front of the ALB (Amplify is restricted and CloudFront denied in Learner Lab) |
+| Hosting | Both apps as Docker containers on AWS ECS Fargate behind **one** Application Load Balancer (`/v1/*` → backend, 2 tasks; everything else → frontend, 1 task — 2 in the demo account), images in ECR. HTTPS from **CloudFront** in the demo account ("full" mode: the ALB only answers CloudFront), from an API Gateway HTTP API in Learner Lab (CloudFront denied there) — see AWS deployment |
 | File storage | Amazon S3 (invoice PDFs, vehicle photos) |
 | Customer emails | Amazon SNS email subscriptions — SES is blocked in Learner Lab (see Reminders below) |
 | Scheduled jobs | Amazon EventBridge Scheduler (09:00 and 18:30 Bangkok) → AWS Lambda → the API's job endpoints |
@@ -498,10 +498,13 @@ appointment filters (PR #23), customer Visits list (PR #24; the customer-side "M
 wider smoke test, end-to-end hand-off; Jira 158–161), Step 11 — check-in journey fixes +
 inventory turnover / labour lines in Reports (162–164; PR #26) and Step 12 — Settings page:
 shop details + the price list, used by labour lines, bookings and Reports (136–140, 165;
-PR #27). Step 13 — a required reason when staff change a list price, and the customer's My
-appointments page at the same width as the other pages (166–167) — is on
-`feat/price-reason`. **Next:** the dev-account rehearsal (160), the final document, demo
-account deploy (Nov 8–10, `seed.sh --demo`), code freeze Nov 10.
+PR #27) and Step 13 — a required reason for list-price changes, My appointments width,
+scrolling tables (166–167; PR #28). Step 14 — the demo account in "full" mode: CloudFront
+with the ALB locked to it, least-privilege roles, Secrets Manager, Multi-AZ + a failover
+test (168–171) — is on `feat/demo-infra`. **Next:** multi-shop ("lite": shops register,
+customers link to several — the team is deciding; until then it stays under Explicitly out
+of scope), the final document, the demo deploy and end-to-end tests (161) in the week of
+Nov 9.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -544,8 +547,12 @@ connect it with your own Jira login)
 design needs a one-line "why". So far: no domain → HTTPS from API Gateway's certificate
 (CloudFront denied); Amplify → frontend as an ECS container (Amplify restricted); Cognito →
 NextAuth + our own JWT; private subnets + NAT → public subnets with locked-down security
-groups (NAT too expensive); SES → SNS email (SES denied); Multi-AZ only in the demo
-account (cost); only `LabRole` exists, so no least-privilege IAM roles (documented limit);
+groups (NAT too expensive); SES → SNS email (SES denied in Learner Lab, sandbox-only and
+no domain in the demo account); Multi-AZ only in the demo account (cost — for one shop,
+single-AZ with point-in-time backups would do; Multi-AZ shows the design scales); the dev
+account (Learner Lab) has only `LabRole` and no CloudFront, so the demo account runs the
+production-style "full" mode (CloudFront, own roles, Secrets Manager) and dev keeps API
+Gateway + `LabRole` + env-var secrets;
 reports show revenue, not profit (no cost snapshot on parts used); no customer "My visits"
 page (My Invoices + each vehicle's service history already show it; staff get a Visits list
 per customer); labour is a fixed-price list plus custom lines ("middle way": mechanics may
@@ -631,12 +638,29 @@ Values that must agree **across files**:
   frontend's origin.
 - `NEXTAUTH_SECRET` and `JWT_SECRET` do **not** need to match (see Auth architecture).
 
-## AWS deployment (AWS Academy Learner Lab)
+## AWS deployment (Learner Lab dev + the course's demo account)
 
 - Each team member has their own Learner Lab account ($50 budget each); accounts can't be
   shared and IAM users/roles can't be created — every service uses the pre-made
   `LabRole` / `LabInstanceProfile`. Credentials are temporary (expire with the lab
   session), so deploys are run by the account owner, not by long-lived CI secrets.
+- **The demo account (528301714999) is different:** a shared course account (other teams'
+  stacks are there too) where our IAM user `des424-126-g03` may do almost anything except
+  manage IAM users/groups. Budget ≈ 4,000 baht; everything is deleted after the course. Use
+  it through the `motormate-demo` CLI profile (`export AWS_PROFILE=motormate-demo`); the
+  scripts only touch `motormate-*` resources. SES there is sandbox-only, so emails stay on SNS.
+- **Two deploy modes** (one switch, `Mode` on every stack; `up.sh` picks `learner-lab` for a
+  `voclabs` session and `full` otherwise, `--lab`/`--full` override):
+  - `learner-lab`: API Gateway in front of an ALB open on port 80, `LabRole` everywhere,
+    secrets as container env vars, the frontend server calls the API through the ALB.
+  - `full`: **CloudFront** (`/_next/static/*` cached, the rest passed through) → ALB that
+    only accepts CloudFront's origin-facing prefix list **and** a secret `X-Origin-Verify`
+    header (else 403); five **least-privilege roles** in the base stack (execution, backend
+    task: our bucket's `invoices/*` + our SNS topic, a no-permission task role, Lambda,
+    Scheduler); **Secrets Manager** (`motormate/app-<stack id>`, `motormate/db-<stack id>` —
+    named per stack because a deleted secret keeps its name for 7 days); the frontend server
+    reaches the API over Cloud Map private DNS (`backend.motormate.local:8080`).
+  - The base stack exports the role ARNs (LabRole in learner-lab), so db/app don't branch on it.
 - Infrastructure lives in the repo as scripts/CloudFormation (no CDK — its bootstrap
   creates IAM roles, which Learner Lab blocks), so any member can recreate the
   environment in their own account.
@@ -646,27 +670,35 @@ Values that must agree **across files**:
 - Cost rules: Fargate tasks in public subnets with public IPs — **no NAT Gateway**;
   RDS `db.t3.micro` with automated backups and encryption at rest.
 - No custom domain → Route 53 / ACM-with-own-domain are "production plan" items in the
-  final document; HTTPS comes from the API Gateway HTTP API's default
-  `*.execute-api.amazonaws.com` certificate, which proxies the whole site to the ALB
-  (30-second request limit — fine for this app).
+  final document; HTTPS comes from CloudFront's default `*.cloudfront.net` certificate
+  (full) or the API Gateway HTTP API's `*.execute-api.amazonaws.com` one (learner-lab),
+  both proxying the whole site to the ALB (30-second limit — fine for this app).
 - Tested in Learner Lab: **CloudFront is denied**, **Amplify's role is restricted** (so the
   frontend is a container too), API Gateway HTTP APIs are allowed, only us-east-1/us-west-2,
   and resources **keep running and billing after the lab session ends** — tear down nightly.
   An ALB needs its own security group allowing inbound 80 (not the default SG).
-- Secrets (`JWT_SECRET`, `NEXTAUTH_SECRET`, DB password, `JOB_TOKEN`) are hidden (`NoEcho`) stack
-  parameters; Secrets Manager is the production plan in the final document.
+- Secrets (`JWT_SECRET`, `NEXTAUTH_SECRET`, DB password, `JOB_TOKEN`, `ORIGIN_SECRET`) are
+  generated per account and passed as hidden (`NoEcho`) stack parameters; full mode stores
+  them in Secrets Manager and the containers/Lambda read them from there.
 - **`infra/`** (guide: `infra/README.md`): three CloudFormation stacks —
   `motormate-base` (VPC, public + isolated subnets, security groups, ECR, ECS cluster, log groups,
-  invoice bucket, SNS topic; kept), `motormate-db` (RDS PostgreSQL 16 `db.t3.micro`, encrypted,
-  7-day backups; `--multi-az` in the demo account) and `motormate-app` (ALB, ECS services,
-  API Gateway, daily-jobs Lambda + 2 schedules).
-  Scripts in `infra/scripts/` (Git Bash): `up.sh` (base → db + images in parallel →
-  `migrate.sh` → app → seed), `down.sh` (deletes app + db — run at the end of every
-  session), `smoke.sh`, `status.sh`, `seed.sh`, `build-push.sh`, `nuke.sh --yes`. Secrets are generated per
-  account into `infra/.secrets/<account>.env` (gitignored). Images are tagged with the
-  git commit; re-running `up.sh` after a commit rolls out the new version.
-- Running cost ≈ $0.10/hour (3 Fargate tasks + public IPs, ALB, RDS). Prefer the AWS MCP
-  for ad-hoc AWS checks; the scripts themselves use the AWS CLI.
+  invoice bucket, SNS topic, full-mode roles; kept), `motormate-db` (RDS PostgreSQL 16
+  `db.t3.micro`, encrypted, 7-day backups; `--multi-az` in the demo account) and
+  `motormate-app` (ALB, ECS services, CloudFront or API Gateway, daily-jobs Lambda + 2
+  schedules; full mode also the app secret and private DNS).
+  Scripts in `infra/scripts/` (Git Bash): `up.sh [--multi-az] [--frontend-count N]
+  [--lab|--full]` (base → db + images in parallel → `migrate.sh` → app → seed; options left
+  out keep their deployed value), `down.sh` (deletes app + db — run at the end of every dev
+  session), `smoke.sh` (full mode also checks the ALB refuses direct requests),
+  `status.sh`, `seed.sh [--demo]`, `build-push.sh`, `failover-test.sh [--tasks|--all]`
+  (forces an RDS failover / stops a task per service while polling the site, reports the
+  outage), `nuke.sh --yes`. Secrets are generated per account into
+  `infra/.secrets/<account>.env` (gitignored). Images are tagged with the git commit;
+  re-running `up.sh` after a commit rolls out the new version. `deploy_stack` passes
+  `CAPABILITY_IAM` (the base stack creates roles in full mode).
+- Running cost ≈ $0.10/hour in dev (3 Fargate tasks + public IPs, ALB, RDS) and ≈ $0.13/hour
+  in the demo account (4 tasks, Multi-AZ RDS; CloudFront and Secrets Manager are cents a
+  day). Prefer the AWS MCP for ad-hoc AWS checks; the scripts themselves use the AWS CLI.
 
 ## Parked ideas (nice-to-have, not scheduled)
 
