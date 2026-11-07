@@ -26,6 +26,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { slug: "reports", label: "Reports", roles: ["ADMIN"] },
   { slug: "staff", label: "Staff", roles: ["ADMIN"] },
   { slug: "settings", label: "Settings", roles: ["ADMIN"] },
+  { slug: "shops", label: "My Shops", roles: ["CUSTOMER"] },
+  // The platform admin works in no shop: only the list of shops.
+  { slug: "platform", label: "Shops", roles: ["PLATFORM_ADMIN"] },
 ];
 
 /** Customers see some sections under friendlier names. */
@@ -54,6 +57,7 @@ export function canAccess(role: Role, slug: string): boolean {
 }
 
 export const ROLE_LABELS: Record<Role, string> = {
+  PLATFORM_ADMIN: "Platform admin",
   ADMIN: "Administrator",
   ADVISOR: "Service Advisor",
   MECHANIC: "Mechanic",

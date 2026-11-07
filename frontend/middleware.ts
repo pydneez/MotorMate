@@ -18,6 +18,10 @@ export default withAuth(
     }
 
     const slug = request.nextUrl.pathname.split("/")[2] ?? "";
+    // The platform admin has no shop dashboard; their home is the list of shops.
+    if (token.user.role === "PLATFORM_ADMIN" && slug === "") {
+      return NextResponse.redirect(new URL("/app/platform", request.url));
+    }
     if (slug !== "forbidden" && !canAccess(token.user.role, slug)) {
       return NextResponse.rewrite(new URL("/app/forbidden", request.url));
     }

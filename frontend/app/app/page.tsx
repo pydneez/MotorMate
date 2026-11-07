@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
+import { redirect } from "next/navigation";
 import { Calendar, Car, Wrench } from "lucide-react";
 import { reportPresetRange } from "@motormate/types";
 import type {
@@ -86,7 +87,7 @@ const DUE_FOR_SERVICE_CARD: CardSpec = { label: "Due for service", note: "Due or
 const TODAY_APPOINTMENTS_CARD: CardSpec = { label: "Today's appointments", note: "Booked for today", source: "todayAppointments" };
 const REQUESTS_CARD: CardSpec = { label: "Requests to confirm", note: "Customers waiting for an answer", source: "appointmentRequests" };
 
-const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER">, CardSpec[]> = {
+const STAFF_CARDS: Record<Exclude<AuthUser["role"], "CUSTOMER" | "PLATFORM_ADMIN">, CardSpec[]> = {
   // Two rows of three; the full reports are on /app/reports.
   ADMIN: [
     OPEN_WORK_ORDERS_CARD,
@@ -252,6 +253,8 @@ export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session) return null;
   const { user } = session;
+  // The platform admin has no shop dashboard (the middleware sends them there too).
+  if (user.role === "PLATFORM_ADMIN") redirect("/app/platform");
   const isStaff = user.role === "ADMIN" || user.role === "ADVISOR";
   const [inventory, workOrders, appointments, reminders, revenue] = await Promise.all([
     isStaff ? serverGet<InventorySummary>("/inventory/summary") : Promise.resolve(null),
