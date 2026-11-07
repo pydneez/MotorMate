@@ -57,8 +57,8 @@ export class WorkOrdersController {
 
   @Get("mechanics")
   @Roles("ADMIN", "ADVISOR")
-  mechanics(): Promise<MechanicOption[]> {
-    return this.workOrders.mechanics();
+  mechanics(@CurrentUser() user: AuthUser): Promise<MechanicOption[]> {
+    return this.workOrders.mechanics(user);
   }
 
   /** New (or existing) customer + new vehicle + work order in one go, for walk-ins. */
