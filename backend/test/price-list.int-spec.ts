@@ -2,8 +2,9 @@ import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import * as bcrypt from "bcryptjs";
 import request = require("supertest");
-import { bangkokParts, DEFAULT_SHOP_DETAILS, SHOP } from "@motormate/types";
+import { bangkokParts, SHOP } from "@motormate/types";
 import { testDatabaseUrl } from "./integration-env";
+import { createTestShop, shopOf, TEST_SHOP_ID } from "./test-shop";
 
 /**
  * Settings over real HTTP + Postgres: shop details, the price list, services booked with an
@@ -53,19 +54,20 @@ beforeAll(async () => {
   await app.init();
   prisma = app.get(PrismaService);
   await resetDatabase();
+  await createTestShop(prisma);
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const user = (email: string, role: "ADMIN" | "ADVISOR" | "MECHANIC" | "CUSTOMER", firstName: string) =>
-    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash } });
+    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash, ...shopOf(role) } });
   await user("admin@price.test", "ADMIN", "Ada");
   await user("advisor@price.test", "ADVISOR", "Alex");
   ids.sam = (await user("sam@price.test", "MECHANIC", "Sam")).id;
   const jordanUser = await user("jordan@price.test", "CUSTOMER", "Jordan");
 
-  const jordan = await prisma.customer.create({ data: { firstName: "Jordan", lastName: "Lee", phone: "+66812345678", userId: jordanUser.id } });
+  const jordan = await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: "Jordan", lastName: "Lee", phone: "+66812345678", userId: jordanUser.id } });
   ids.civic = (
     await prisma.vehicle.create({
-      data: {
+      data: { shopId: TEST_SHOP_ID,
         customerId: jordan.id,
         vin: "MRHFC1650KP000201",
         plate: "1กข 1234",
@@ -93,8 +95,10 @@ afterAll(async () => {
 describe("shop details", () => {
   const details = { name: "Siam Garage", address: "1 Rama IV Road\nBangkok 10500", phone: "081-234-5678", email: "", taxId: "0-1055-12345-67-8" };
 
-  it("shows the defaults to anyone signed in until an admin saves them", async () => {
-    expect((await api(tokens.jordan).get("/settings/shop").expect(200)).body).toEqual(DEFAULT_SHOP_DETAILS);
+  it("shows the shop's own details (from its registration) to anyone signed in", async () => {
+    expect((await api(tokens.jordan).get("/settings/shop").expect(200)).body).toEqual({
+      name: "Test Garage", address: "1 Test Road\nBangkok 10110", phone: "+6621234567", email: null, taxId: "0-1055-12345-67-8",
+    });
     await api(tokens.advisor).patch("/settings/shop", details).expect(403);
     const bad = await api(tokens.admin).patch("/settings/shop", { ...details, taxId: "123" }).expect(400);
     expect(bad.body.errors.taxId).toBeDefined();

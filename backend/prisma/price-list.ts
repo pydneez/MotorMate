@@ -16,11 +16,18 @@ export const PRICE_LIST: { name: string; category: string; price: number }[] = [
   { name: "Cooling system flush", category: "Engine", price: 1200 },
 ];
 
-/** Adds any missing entries (matched by name) and leaves ones the admin edited alone. Name → id. */
-export async function upsertPriceList(prisma: PrismaClient): Promise<Map<string, string>> {
+/**
+ * Adds any of the shop's missing entries (matched by name) and leaves ones its admin edited
+ * alone. Name → id.
+ */
+export async function upsertPriceList(prisma: PrismaClient, shopId: string): Promise<Map<string, string>> {
   const ids = new Map<string, string>();
   for (const service of PRICE_LIST) {
-    const row = await prisma.serviceCatalogItem.upsert({ where: { name: service.name }, create: service, update: {} });
+    const row = await prisma.serviceCatalogItem.upsert({
+      where: { shopId_name: { shopId, name: service.name } },
+      create: { ...service, shopId },
+      update: {},
+    });
     ids.set(row.name, row.id);
   }
   return ids;

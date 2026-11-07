@@ -5,6 +5,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { AuthService } from "./auth.service";
 
 const PASSWORD = "password123";
+const SHOP = { id: "shop-1", name: "MotorMate Auto Service", isActive: true };
 
 function makeUser(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -15,7 +16,9 @@ function makeUser(overrides: Partial<Record<string, unknown>> = {}) {
     lastName: "Rivera",
     role: "ADVISOR",
     isActive: true,
-    customer: null,
+    shopId: "shop-1",
+    lastShopId: null,
+    shop: SHOP,
     ...overrides,
   };
 }
@@ -23,7 +26,8 @@ function makeUser(overrides: Partial<Record<string, unknown>> = {}) {
 function setup() {
   const prisma = {
     user: { findUnique: jest.fn(), update: jest.fn(), create: jest.fn() },
-    customer: { findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
+    shop: { findUnique: jest.fn().mockResolvedValue(SHOP) },
+    customer: { findUnique: jest.fn(), findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]), update: jest.fn(), create: jest.fn() },
     auditLog: { create: jest.fn() },
     $transaction: jest.fn(),
   };
@@ -42,8 +46,48 @@ describe("AuthService.login", () => {
     const result = await service.login({ email: "advisor@motormate.example", password: PASSWORD });
 
     expect(result.accessToken).toBe("signed-token");
-    expect(result.user).toEqual(expect.objectContaining({ id: "user-1", role: "ADVISOR", customerId: null }));
-    expect(jwt.signAsync).toHaveBeenCalledWith({ sub: "user-1", email: "advisor@motormate.example", role: "ADVISOR" });
+    expect(result.user).toEqual(expect.objectContaining({ id: "user-1", role: "ADVISOR", shopId: "shop-1", customerId: null }));
+    expect(jwt.signAsync).toHaveBeenCalledWith({ sub: "user-1", email: "advisor@motormate.example", role: "ADVISOR", shopId: "shop-1" });
+  });
+
+  it("refuses staff of a suspended shop", async () => {
+    const { prisma, service } = setup();
+    prisma.user.findUnique.mockResolvedValue(makeUser({ shop: { ...SHOP, isActive: false } }));
+
+    await expect(service.login({ email: "advisor@motormate.example", password: PASSWORD })).rejects.toThrow("suspended");
+  });
+
+  it("signs the platform admin in without a shop", async () => {
+    const { prisma, jwt, service } = setup();
+    prisma.user.findUnique.mockResolvedValue(makeUser({ role: "PLATFORM_ADMIN", shopId: null, shop: null }));
+
+    const result = await service.login({ email: "advisor@motormate.example", password: PASSWORD });
+    expect(result.user).toEqual(expect.objectContaining({ role: "PLATFORM_ADMIN", shopId: null }));
+    expect(jwt.signAsync).toHaveBeenCalledWith(expect.objectContaining({ shopId: null }));
+  });
+
+  it("signs a customer into the shop they used last, if it's open", async () => {
+    const { prisma, service } = setup();
+    prisma.user.findUnique.mockResolvedValue(makeUser({ role: "CUSTOMER", shopId: null, shop: null, lastShopId: "shop-2" }));
+    prisma.customer.findMany.mockResolvedValue([
+      { id: "cust-a", shop: SHOP },
+      { id: "cust-b", shop: { id: "shop-2", name: "Siam Garage", isActive: true } },
+    ]);
+
+    const result = await service.login({ email: "advisor@motormate.example", password: PASSWORD });
+    expect(result.user).toEqual(expect.objectContaining({ shopId: "shop-2", shopName: "Siam Garage", customerId: "cust-b" }));
+  });
+
+  it("falls back to a customer's open shop when the last one is suspended", async () => {
+    const { prisma, service } = setup();
+    prisma.user.findUnique.mockResolvedValue(makeUser({ role: "CUSTOMER", shopId: null, shop: null, lastShopId: "shop-2" }));
+    prisma.customer.findMany.mockResolvedValue([
+      { id: "cust-a", shop: SHOP },
+      { id: "cust-b", shop: { id: "shop-2", name: "Siam Garage", isActive: false } },
+    ]);
+
+    const result = await service.login({ email: "advisor@motormate.example", password: PASSWORD });
+    expect(result.user).toEqual(expect.objectContaining({ shopId: "shop-1", customerId: "cust-a" }));
   });
 
   it("rejects a wrong password with the same error as an unknown email", async () => {
@@ -69,6 +113,7 @@ describe("AuthService.login", () => {
 
 describe("AuthService.register", () => {
   const input = {
+    shopId: "shop-1",
     firstName: "Malee",
     lastName: "Srisuk",
     email: "malee.s@example.com",
@@ -80,7 +125,7 @@ describe("AuthService.register", () => {
   it("links to a shop-created customer when email AND phone match", async () => {
     const { prisma, service } = setup();
     prisma.user.findUnique.mockResolvedValue(null);
-    prisma.customer.findUnique.mockResolvedValue({ id: "cust-1", userId: null, phone: input.phone, lineId: null });
+    prisma.customer.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "cust-1", userId: null, phone: input.phone, lineId: null });
     prisma.user.create.mockResolvedValue(makeUser({ id: "user-2", email: input.email, role: "CUSTOMER" }));
     prisma.customer.update.mockResolvedValue({ id: "cust-1" });
 
@@ -90,13 +135,13 @@ describe("AuthService.register", () => {
       expect.objectContaining({ where: { id: "cust-1" }, data: expect.objectContaining({ userId: "user-2" }) }),
     );
     expect(prisma.customer.create).not.toHaveBeenCalled();
-    expect(result.user.customerId).toBe("cust-1");
+    expect(result.user).toEqual(expect.objectContaining({ customerId: "cust-1", shopId: "shop-1" }));
   });
 
   it("refuses to link when the email matches but the phone does not", async () => {
     const { prisma, service } = setup();
     prisma.user.findUnique.mockResolvedValue(null);
-    prisma.customer.findUnique.mockResolvedValue({ id: "cust-1", userId: null, phone: "+66811111111", lineId: null });
+    prisma.customer.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: "cust-1", userId: null, phone: "+66811111111", lineId: null });
 
     await expect(service.register(input)).rejects.toThrow(ConflictException);
     expect(prisma.user.create).not.toHaveBeenCalled();
@@ -105,14 +150,24 @@ describe("AuthService.register", () => {
   it("creates a new customer when the email is not on file", async () => {
     const { prisma, service } = setup();
     prisma.user.findUnique.mockResolvedValue(null);
-    prisma.customer.findUnique.mockResolvedValue(null);
+    prisma.customer.findFirst.mockResolvedValue(null);
     prisma.user.create.mockResolvedValue(makeUser({ id: "user-3", email: input.email, role: "CUSTOMER" }));
     prisma.customer.create.mockResolvedValue({ id: "cust-new" });
 
     const result = await service.register(input);
 
-    expect(prisma.customer.create).toHaveBeenCalled();
+    expect(prisma.customer.create.mock.calls[0][0].data).toEqual(expect.objectContaining({ shopId: "shop-1", userId: "user-3" }));
+    expect(prisma.user.create.mock.calls[0][0].data).toEqual(expect.objectContaining({ role: "CUSTOMER", lastShopId: "shop-1" }));
     expect(result.user).toEqual(expect.objectContaining({ role: "CUSTOMER", customerId: "cust-new" }));
+  });
+
+  it("refuses a shop that doesn't exist or is suspended, as a shop field error", async () => {
+    const { prisma, service } = setup();
+    prisma.shop.findUnique.mockResolvedValue({ ...SHOP, isActive: false });
+
+    const error = await service.register(input).catch((e) => e);
+    expect(error.getResponse().errors.shopId).toBeDefined();
+    expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
   it("rejects an email that already has a login", async () => {
@@ -141,7 +196,6 @@ describe("AuthService.register", () => {
     const { prisma, service } = setup();
     prisma.user.findUnique.mockResolvedValue(null);
     prisma.customer.findFirst.mockResolvedValue(null); // the walk-in record has no login
-    prisma.customer.findUnique.mockResolvedValue(null);
     prisma.user.create.mockResolvedValue(makeUser({ id: "user-4", email: input.email, role: "CUSTOMER" }));
     prisma.customer.create.mockResolvedValue({ id: "cust-new" });
 

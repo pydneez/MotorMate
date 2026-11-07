@@ -62,6 +62,12 @@ function LoginForm() {
           Create an account →
         </Link>
       </p>
+      <p className="mt-2 text-center text-sm text-slate-600">
+        Own a garage?{" "}
+        <Link href="/register-shop" className="font-medium text-blue-600 hover:underline">
+          Register your shop →
+        </Link>
+      </p>
     </AuthCard>
   );
 }

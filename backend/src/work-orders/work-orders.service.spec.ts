@@ -11,6 +11,7 @@ const otherMechanic = makeAuthUser({ id: "mech-other", role: "MECHANIC" });
 function workOrderRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "wo-1",
+    shopId: "shop-1",
     number: 3,
     vehicleId: "veh-1",
     mileageIn: 45000,
@@ -28,6 +29,10 @@ function workOrderRow(overrides: Record<string, unknown> = {}) {
 
 function setup() {
   const { prisma, service } = createPrismaMock();
+  // Lookups that are unique per shop are findFirst now; answer them like findUnique.
+  prisma.user.findFirst.mockImplementation((args: unknown) => prisma.user.findUnique(args));
+  // Lookups that are unique per shop are findFirst now; answer them like findUnique.
+  prisma.vehicle.findFirst.mockImplementation((args: unknown) => prisma.vehicle.findUnique(args));
   const stock = { change: jest.fn().mockResolvedValue(0) };
   const workOrders = new WorkOrdersService(service, stock as unknown as StockService);
   // Every mutation returns the reloaded detail; its mapping is covered by integration tests.
@@ -269,6 +274,8 @@ describe("WorkOrdersService.changeStatus", () => {
 
       // 600 + 2 × 320.50 = 1,241.00; VAT 86.87; total 1,327.87
       expect(prisma.invoice.create.mock.calls[0][0].data).toEqual({
+        shopId: "shop-1",
+        number: 1,
         workOrderId: "wo-1",
         subtotal: 1241,
         vatRate: 0.07,

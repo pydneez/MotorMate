@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import * as bcrypt from "bcryptjs";
 import request = require("supertest");
 import { testDatabaseUrl } from "./integration-env";
+import { createTestShop, shopOf, TEST_SHOP_ID } from "./test-shop";
 
 /** Work-order lifecycle over real HTTP + Postgres: roles, status moves, parts and stock. */
 
@@ -36,7 +37,7 @@ function api(token: string) {
   };
 }
 
-const onHand = async (sku: string) => (await prisma.inventoryItem.findUniqueOrThrow({ where: { sku } })).quantityOnHand;
+const onHand = async (sku: string) => (await prisma.inventoryItem.findUniqueOrThrow({ where: { shopId_sku: { shopId: TEST_SHOP_ID, sku } } })).quantityOnHand;
 
 beforeAll(async () => {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -44,28 +45,29 @@ beforeAll(async () => {
   await app.init();
   prisma = app.get(PrismaService);
   await resetDatabase();
+  await createTestShop(prisma);
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const user = (email: string, role: "ADVISOR" | "MECHANIC" | "CUSTOMER", firstName: string) =>
-    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash } });
+    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash, ...shopOf(role) } });
   await user("advisor@wo.test", "ADVISOR", "Alex");
   ids.sam = (await user("sam@wo.test", "MECHANIC", "Sam")).id;
   ids.nok = (await user("nok@wo.test", "MECHANIC", "Nok")).id;
   const customerUser = await user("jordan@wo.test", "CUSTOMER", "Jordan");
 
   const customer = await prisma.customer.create({
-    data: { firstName: "Jordan", lastName: "Lee", phone: "+66812345678", email: "jordan@wo.test", userId: customerUser.id },
+    data: { shopId: TEST_SHOP_ID, firstName: "Jordan", lastName: "Lee", phone: "+66812345678", email: "jordan@wo.test", userId: customerUser.id },
   });
   const vehicle = (vin: string, plate: string, mileage: number) =>
     prisma.vehicle.create({
-      data: { customerId: customer.id, vin, plate, plateNormalized: plate.replace(/[\s-]/g, ""), province: "กรุงเทพมหานคร", make: "Honda", model: "Civic", year: 2019, mileage },
+      data: { shopId: TEST_SHOP_ID, customerId: customer.id, vin, plate, plateNormalized: plate.replace(/[\s-]/g, ""), province: "กรุงเทพมหานคร", make: "Honda", model: "Civic", year: 2019, mileage },
     });
   ids.civic = (await vehicle("MRHFC1650KP000001", "1กข 1234", 42000)).id;
   ids.jazz = (await vehicle("MRHFC1650KP000002", "2กข 2222", 10000)).id;
   ids.city = (await vehicle("MRHFC1650KP000003", "3กข 3333", 5000)).id;
 
   const item = (sku: string, quantityOnHand: number, unitPrice: number) =>
-    prisma.inventoryItem.create({ data: { sku, name: `Part ${sku}`, category: "Brakes", quantityOnHand, unitCost: 1, unitPrice, reorderLevel: 0 } });
+    prisma.inventoryItem.create({ data: { shopId: TEST_SHOP_ID, sku, name: `Part ${sku}`, category: "Brakes", quantityOnHand, unitCost: 1, unitPrice, reorderLevel: 0 } });
   ids.pads = (await item("PADS", 6, 1500)).id;
   ids.fluid = (await item("FLUID", 5, 320.5)).id;
 
@@ -263,12 +265,12 @@ describe("completion, invoice and payment", () => {
     const jordan = await prisma.customer.findFirstOrThrow({ where: { email: "jordan@wo.test" } });
     vehicleId = (
       await prisma.vehicle.create({
-        data: { customerId: jordan.id, vin: "MRHFC1650KP000099", plate: "9กข 9999", plateNormalized: "9กข9999", province: "กรุงเทพมหานคร", make: "Honda", model: "HR-V", year: 2021, mileage: 20000 },
+        data: { shopId: TEST_SHOP_ID, customerId: jordan.id, vin: "MRHFC1650KP000099", plate: "9กข 9999", plateNormalized: "9กข9999", province: "กรุงเทพมหานคร", make: "Honda", model: "HR-V", year: 2021, mileage: 20000 },
       })
     ).id;
     const passwordHash = await bcrypt.hash(PASSWORD, 4);
     const other = await prisma.user.create({ data: { email: "other@wo.test", role: "CUSTOMER", firstName: "Other", lastName: "Test", passwordHash } });
-    await prisma.customer.create({ data: { firstName: "Other", lastName: "Test", phone: "+66899999999", userId: other.id } });
+    await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: "Other", lastName: "Test", phone: "+66899999999", userId: other.id } });
     otherCustomerToken = (await request(app.getHttpServer()).post("/auth/login").send({ email: "other@wo.test", password: PASSWORD }).expect(200)).body.accessToken;
   });
 

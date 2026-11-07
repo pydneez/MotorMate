@@ -4,6 +4,7 @@ import * as bcrypt from "bcryptjs";
 import request = require("supertest");
 import { bangkokParts, SHOP } from "@motormate/types";
 import { testDatabaseUrl } from "./integration-env";
+import { createTestShop, shopOf, TEST_SHOP_ID } from "./test-shop";
 
 /** Appointments over real HTTP + Postgres: booking, scoping, confirm, check-in → job → completion. */
 
@@ -51,20 +52,21 @@ beforeAll(async () => {
   await app.init();
   prisma = app.get(PrismaService);
   await resetDatabase();
+  await createTestShop(prisma);
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const user = (email: string, role: "ADVISOR" | "MECHANIC" | "CUSTOMER", firstName: string) =>
-    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash } });
+    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash, ...shopOf(role) } });
   await user("advisor@appt.test", "ADVISOR", "Alex");
   await user("sam@appt.test", "MECHANIC", "Sam");
   const jordanUser = await user("jordan@appt.test", "CUSTOMER", "Jordan");
   const otherUser = await user("other@appt.test", "CUSTOMER", "Other");
 
-  const jordan = await prisma.customer.create({ data: { firstName: "Jordan", lastName: "Lee", phone: "+66812345678", userId: jordanUser.id } });
-  await prisma.customer.create({ data: { firstName: "Other", lastName: "Test", phone: "+66899999999", userId: otherUser.id } });
+  const jordan = await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: "Jordan", lastName: "Lee", phone: "+66812345678", userId: jordanUser.id } });
+  await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: "Other", lastName: "Test", phone: "+66899999999", userId: otherUser.id } });
   const vehicle = (vin: string, plate: string) =>
     prisma.vehicle.create({
-      data: { customerId: jordan.id, vin, plate, plateNormalized: plate.replace(/[\s-]/g, ""), province: "กรุงเทพมหานคร", make: "Honda", model: "Civic", year: 2019, mileage: 42000 },
+      data: { shopId: TEST_SHOP_ID, customerId: jordan.id, vin, plate, plateNormalized: plate.replace(/[\s-]/g, ""), province: "กรุงเทพมหานคร", make: "Honda", model: "Civic", year: 2019, mileage: 42000 },
     });
   ids.civic = (await vehicle("MRHFC1650KP000101", "1กข 1234")).id;
   ids.jazz = (await vehicle("MRHFC1650KP000102", "2กข 2222")).id;

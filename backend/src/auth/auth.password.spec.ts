@@ -51,7 +51,7 @@ describe("JwtStrategy.validate", () => {
     process.env.JWT_SECRET ??= "test-secret";
     return new JwtStrategy(authService);
   }
-  const claims = { sub: "user-1", email: "a@b.com", role: "ADVISOR" as const, iat: 0, exp: 0 };
+  const claims = { sub: "user-1", email: "a@b.com", role: "ADVISOR" as const, shopId: "shop-1", iat: 0, exp: 0 };
 
   it("accepts a token for an active user", async () => {
     const user = makeAuthUser({ id: "user-1", role: "ADVISOR" });

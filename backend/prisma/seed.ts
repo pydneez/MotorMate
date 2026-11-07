@@ -5,6 +5,7 @@ import * as bcrypt from "bcryptjs";
 import { bangkokParts, normalizePlate, normalizeThaiPhone, VAT_RATE } from "@motormate/types";
 import { pgConfig } from "../src/prisma/pg-config";
 import { upsertPriceList } from "./price-list";
+import { MAIN_SHOP_ID, nextNumber, upsertShop } from "./shops";
 
 const prisma = new PrismaClient({ adapter: new PrismaPg(pgConfig()) });
 
@@ -18,16 +19,25 @@ function phone(input: string): string {
 /** Every seeded login uses this password — local development only. */
 const SEED_PASSWORD = "password123";
 
+/** Staff get the shop; customers remember it as their last-used one; the platform admin has none. */
 async function upsertUser(email: string, firstName: string, lastName: string, role: Role, passwordHash: string) {
+  const shop =
+    role === "PLATFORM_ADMIN" ? {} : role === "CUSTOMER" ? { lastShopId: MAIN_SHOP_ID } : { shopId: MAIN_SHOP_ID };
   return prisma.user.upsert({
     where: { email },
     update: {},
-    create: { email, firstName, lastName, role, passwordHash },
+    create: { email, firstName, lastName, role, passwordHash, ...shop },
   });
 }
 
 async function main() {
   const passwordHash = await bcrypt.hash(SEED_PASSWORD, 10);
+
+  // ── The shop (the migration creates it too, on a database that had data) ────
+  await upsertShop(prisma, MAIN_SHOP_ID);
+
+  // ── The platform admin (runs the platform, belongs to no shop) ───────────────
+  await upsertUser("platform@motormate.example", "Pim", "Platform", "PLATFORM_ADMIN", passwordHash);
 
   // ── Staff and a portal customer ────────────────────────────────────────────
   const admin = await upsertUser("admin@motormate.example", "Somchai", "Jaidee", "ADMIN", passwordHash);
@@ -37,9 +47,10 @@ async function main() {
 
   // ── Customers ──────────────────────────────────────────────────────────────
   const jordan = await prisma.customer.upsert({
-    where: { email: "jordan.lee@example.com" },
+    where: { shopId_email: { shopId: MAIN_SHOP_ID, email: "jordan.lee@example.com" } },
     update: {},
     create: {
+      shopId: MAIN_SHOP_ID,
       firstName: "Jordan",
       lastName: "Lee",
       email: "jordan.lee@example.com",
@@ -51,9 +62,10 @@ async function main() {
 
   // Walk-in customer with no portal account — self-registering with this email AND phone links to it.
   const malee = await prisma.customer.upsert({
-    where: { email: "malee.s@example.com" },
+    where: { shopId_email: { shopId: MAIN_SHOP_ID, email: "malee.s@example.com" } },
     update: {},
     create: {
+      shopId: MAIN_SHOP_ID,
       firstName: "Malee",
       lastName: "Srisuk",
       email: "malee.s@example.com",
@@ -62,11 +74,11 @@ async function main() {
   });
 
   // Walk-in customer without email (can't receive reminders until one is added).
-  const existingNiran = await prisma.customer.findFirst({ where: { phone: phone("02-123-4567") } });
+  const existingNiran = await prisma.customer.findFirst({ where: { shopId: MAIN_SHOP_ID, phone: phone("02-123-4567") } });
   const niran =
     existingNiran ??
     (await prisma.customer.create({
-      data: { firstName: "Niran", lastName: "Wongsa", phone: phone("02-123-4567"), notes: "Prefers phone calls" },
+      data: { shopId: MAIN_SHOP_ID, firstName: "Niran", lastName: "Wongsa", phone: phone("02-123-4567"), notes: "Prefers phone calls" },
     }));
 
   // ── Vehicles ───────────────────────────────────────────────────────────────
@@ -80,16 +92,16 @@ async function main() {
   for (const v of vehicleSeeds) {
     vehicles.push(
       await prisma.vehicle.upsert({
-        where: { vin: v.vin },
+        where: { shopId_vin: { shopId: MAIN_SHOP_ID, vin: v.vin } },
         update: {},
-        create: { ...v, plateNormalized: normalizePlate(v.plate) },
+        create: { ...v, shopId: MAIN_SHOP_ID, plateNormalized: normalizePlate(v.plate) },
       }),
     );
   }
   const [civic, , almera] = vehicles;
 
   // ── Price list ─────────────────────────────────────────────────────────────
-  const priceList = await upsertPriceList(prisma);
+  const priceList = await upsertPriceList(prisma, MAIN_SHOP_ID);
 
   // ── Inventory ──────────────────────────────────────────────────────────────
   const inventorySeeds = [
@@ -107,14 +119,14 @@ async function main() {
   const inventory: Record<string, Awaited<ReturnType<typeof prisma.inventoryItem.upsert>>> = {};
   for (const item of inventorySeeds) {
     inventory[item.sku] = await prisma.inventoryItem.upsert({
-      where: { sku: item.sku },
+      where: { shopId_sku: { shopId: MAIN_SHOP_ID, sku: item.sku } },
       update: {},
-      create: item,
+      create: { ...item, shopId: MAIN_SHOP_ID },
     });
   }
 
   // Work orders aren't keyed by anything natural, so only create them on a fresh database.
-  if ((await prisma.workOrder.count()) === 0) {
+  if ((await prisma.workOrder.count({ where: { shopId: MAIN_SHOP_ID } })) === 0) {
     // ── A completed visit with parts, invoice, and a follow-up recommendation ─
     const oil = inventory["OIL-5W30-4L"];
     const filter = inventory["FLT-OIL-HON"];
@@ -126,6 +138,8 @@ async function main() {
 
     await prisma.workOrder.create({
       data: {
+        shopId: MAIN_SHOP_ID,
+        number: await nextNumber(prisma, MAIN_SHOP_ID, "workOrder"),
         vehicleId: civic.id,
         mileageIn: 37000,
         complaint: "Scheduled 10,000 km service",
@@ -158,6 +172,8 @@ async function main() {
         },
         invoice: {
           create: {
+            shopId: MAIN_SHOP_ID,
+            number: await nextNumber(prisma, MAIN_SHOP_ID, "invoice"),
             subtotal,
             vatAmount,
             total: subtotal.plus(vatAmount),
@@ -190,6 +206,8 @@ async function main() {
     // ── An open visit, currently being diagnosed ─────────────────────────────
     await prisma.workOrder.create({
       data: {
+        shopId: MAIN_SHOP_ID,
+        number: await nextNumber(prisma, MAIN_SHOP_ID, "workOrder"),
         vehicleId: almera.id,
         mileageIn: 23000,
         complaint: "Check engine light is on",

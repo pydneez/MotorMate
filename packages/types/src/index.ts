@@ -13,3 +13,4 @@ export * from "./reminder";
 export * from "./inventory";
 export * from "./report";
 export * from "./settings";
+export * from "./tenant";

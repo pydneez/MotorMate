@@ -37,6 +37,11 @@ npm run dev:frontend          # site on http://localhost:3000
 | Mechanic 2 | `mechanic2@motormate.example` | Demo data only |
 | Customer | `jordan.lee@example.com` | Own vehicles, appointments, invoices |
 | Customer | `ploy.s@example.com`, `anan.r@example.com` | Demo data only, with history |
+| Platform admin | `platform@motormate.example` | Only the Shops page: every shop, Suspend / Reactivate |
+| Admin, 2nd shop | `admin@siamgarage.example` | Demo data only: Siam Garage, whose records the first shop must never see |
+
+Jordan is linked to both shops in the demo data: the shop name in the top bar is a menu to
+switch. Shops register at `/register-shop`; customers pick their shop when signing up.
 
 ## Finding things on the page
 

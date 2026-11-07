@@ -32,6 +32,7 @@ import {
   type WorkOrderSummary,
 } from "@motormate/types";
 import type { z } from "zod";
+import { nextShopNumber, requireShop } from "../common/tenancy/shop-records";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { bangkokDayFilter } from "../common/utils/dates";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
@@ -120,10 +121,10 @@ export class WorkOrdersService {
     return { open: openCount, awaitingParts, qualityCheck, mine };
   }
 
-  /** Active mechanics with their open-job counts, for the assign dropdown. */
-  async mechanics(): Promise<MechanicOption[]> {
+  /** The shop's active mechanics with their open-job counts, for the assign dropdown. */
+  async mechanics(user: AuthUser): Promise<MechanicOption[]> {
     const mechanics = await this.prisma.user.findMany({
-      where: { role: "MECHANIC", isActive: true },
+      where: { shopId: requireShop(user), role: "MECHANIC", isActive: true },
       select: {
         id: true,
         firstName: true,
@@ -166,12 +167,15 @@ export class WorkOrdersService {
         workOrderId: open.id,
       });
     }
-    if (input.mechanicId) await this.assertMechanic(input.mechanicId);
+    if (input.mechanicId) await this.assertMechanic(actor, input.mechanicId);
     if (input.appointmentId) await this.assertCanCheckInAppointment(input.appointmentId, vehicle.id);
 
+    const shopId = requireShop(actor);
     const id = await this.prisma.$transaction(async (tx) => {
       const workOrder = await tx.workOrder.create({
         data: {
+          shopId,
+          number: await nextShopNumber(tx, shopId, "workOrder"),
           vehicleId: vehicle.id,
           mileageIn: input.mileageIn,
           complaint: input.complaint,
@@ -249,7 +253,8 @@ export class WorkOrdersService {
         });
       }
     }
-    const vinOwner = await this.prisma.vehicle.findUnique({ where: { vin: input.vin }, select: { id: true } });
+    // VINs are unique per shop; this lookup is limited to the current shop (common/tenancy).
+    const vinOwner = await this.prisma.vehicle.findFirst({ where: { vin: input.vin }, select: { id: true } });
     if (vinOwner) {
       throw new ConflictException({
         message: "This VIN is already registered to another vehicle",
@@ -257,14 +262,16 @@ export class WorkOrdersService {
         vehicleId: vinOwner.id,
       });
     }
-    if (input.mechanicId) await this.assertMechanic(input.mechanicId);
+    if (input.mechanicId) await this.assertMechanic(actor, input.mechanicId);
 
+    const shopId = requireShop(actor);
     try {
       const id = await this.prisma.$transaction(async (tx) => {
         let customerId = input.customerId;
         if (!customerId) {
           const customer = await tx.customer.create({
             data: {
+              shopId,
               firstName: input.firstName!,
               lastName: input.lastName!,
               phone: input.phone!,
@@ -278,6 +285,7 @@ export class WorkOrdersService {
 
         const vehicle = await tx.vehicle.create({
           data: {
+            shopId,
             customerId,
             vin: input.vin,
             plate: input.plate,
@@ -300,6 +308,8 @@ export class WorkOrdersService {
 
         const workOrder = await tx.workOrder.create({
           data: {
+            shopId,
+            number: await nextShopNumber(tx, shopId, "workOrder"),
             vehicleId: vehicle.id,
             mileageIn: input.mileageIn,
             complaint: input.complaint,
@@ -329,7 +339,7 @@ export class WorkOrdersService {
 
   async assignMechanic(actor: AuthUser, id: string, input: AssignMechanicData): Promise<WorkOrderDetail> {
     const workOrder = await this.findOpen(id);
-    if (input.mechanicId) await this.assertMechanic(input.mechanicId);
+    if (input.mechanicId) await this.assertMechanic(actor, input.mechanicId);
     if (workOrder.mechanicId === input.mechanicId) return this.findOne(id);
 
     await this.prisma.$transaction(async (tx) => {
@@ -415,7 +425,15 @@ export class WorkOrdersService {
     try {
       await this.prisma.$transaction(async (tx) => {
         const invoice = await tx.invoice.create({
-          data: { workOrderId: id, subtotal: totals.subtotal, vatRate: totals.vatRate, vatAmount: totals.vat, total: totals.total },
+          data: {
+            shopId: workOrder.shopId,
+            number: await nextShopNumber(tx, workOrder.shopId, "invoice"),
+            workOrderId: id,
+            subtotal: totals.subtotal,
+            vatRate: totals.vatRate,
+            vatAmount: totals.vat,
+            total: totals.total,
+          },
         });
         await tx.workOrder.update({ where: { id }, data: { status: "COMPLETED", completedAt: new Date() } });
         // The booked visit (if any) is done too.
@@ -673,8 +691,12 @@ export class WorkOrdersService {
     return workOrder;
   }
 
-  private async assertMechanic(mechanicId: string): Promise<void> {
-    const mechanic = await this.prisma.user.findUnique({ where: { id: mechanicId }, select: { role: true, isActive: true } });
+  /** An active mechanic of the actor's shop (Users aren't covered by the automatic shop filter). */
+  private async assertMechanic(actor: AuthUser, mechanicId: string): Promise<void> {
+    const mechanic = await this.prisma.user.findFirst({
+      where: { id: mechanicId, shopId: requireShop(actor) },
+      select: { role: true, isActive: true },
+    });
     if (!mechanic || mechanic.role !== "MECHANIC" || !mechanic.isActive) {
       throw new BadRequestException({
         message: "Choose an active mechanic",

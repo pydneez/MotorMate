@@ -15,6 +15,7 @@ import type {
   UpdateInventoryItemSchema,
 } from "@motormate/types";
 import type { z } from "zod";
+import { requireShop } from "../common/tenancy/shop-records";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { PrismaService } from "../prisma/prisma.service";
@@ -148,7 +149,7 @@ export class InventoryService {
     const { openingQuantity, ...fields } = input;
 
     const id = await this.prisma.$transaction(async (tx) => {
-      const item = await tx.inventoryItem.create({ data: { ...fields, quantityOnHand: 0 } });
+      const item = await tx.inventoryItem.create({ data: { ...fields, shopId: requireShop(actor), quantityOnHand: 0 } });
       await writeAudit(tx, {
         actorId: actor.id,
         action: "inventory.created",
@@ -246,7 +247,8 @@ export class InventoryService {
   }
 
   private async assertSkuFree(sku: string): Promise<void> {
-    if (await this.prisma.inventoryItem.findUnique({ where: { sku }, select: { id: true } })) {
+    // SKUs are unique per shop; this lookup is limited to the current shop (common/tenancy).
+    if (await this.prisma.inventoryItem.findFirst({ where: { sku }, select: { id: true } })) {
       throw new ConflictException({
         message: `SKU ${sku} is already used by another item`,
         errors: { sku: ["This SKU is already used by another item"] },

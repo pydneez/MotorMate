@@ -4,7 +4,8 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import * as bcrypt from "bcryptjs";
 import { addDays, bangkokDateTime, bangkokParts, calculateTotals, normalizePlate, normalizeThaiPhone } from "@motormate/types";
 import { pgConfig } from "../src/prisma/pg-config";
-import { upsertPriceList } from "./price-list";
+import { PRICE_LIST, upsertPriceList } from "./price-list";
+import { MAIN_SHOP_ID, nextNumber, SECOND_SHOP, SECOND_SHOP_ID, upsertShop } from "./shops";
 
 /**
  * Demo data for the presentation: about six months of plausible shop history on top of the
@@ -128,8 +129,21 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
 
   // ── People ──────────────────────────────────────────────────────────────────
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
+  await upsertShop(prisma, MAIN_SHOP_ID);
+  // Staff belong to shop #1; customers remember it as their last-used shop.
   const user = (email: string, firstName: string, lastName: string, role: Role) =>
-    prisma.user.upsert({ where: { email }, update: {}, create: { email, firstName, lastName, role, passwordHash } });
+    prisma.user.upsert({
+      where: { email },
+      update: {},
+      create: {
+        email,
+        firstName,
+        lastName,
+        role,
+        passwordHash,
+        ...(role === "CUSTOMER" ? { lastShopId: MAIN_SHOP_ID } : { shopId: MAIN_SHOP_ID }),
+      },
+    });
   const admin = await user("admin@motormate.example", "Somchai", "Jaidee", "ADMIN");
   const advisor = await user("advisor@motormate.example", "Alex", "Rivera", "ADVISOR");
   const mechanics = [
@@ -143,6 +157,7 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
     customers.push(
       await prisma.customer.create({
         data: {
+          shopId: MAIN_SHOP_ID,
           firstName: c.firstName,
           lastName: c.lastName,
           phone: normalizeThaiPhone(c.phone)!,
@@ -162,6 +177,7 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
     vehicles.push(
       await prisma.vehicle.create({
         data: {
+          shopId: MAIN_SHOP_ID,
           customerId: customers[owner].id,
           vin: `DEMO${String(index + 1).padStart(13, "0")}`,
           plate,
@@ -206,11 +222,15 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
   for (const p of planned) if (hasLines(p.status)) for (const [sku, qty] of p.job.parts) usage.set(sku, (usage.get(sku) ?? 0) + qty);
 
   // ── Stock: catalogue, then one opening purchase per item so the history fits ─
-  const priceList = await upsertPriceList(prisma);
+  const priceList = await upsertPriceList(prisma, MAIN_SHOP_ID);
   const items = new Map<Sku, { id: string; unitPrice: number }>();
   for (const part of PARTS) {
     const { target, ...fields } = part;
-    const row = await prisma.inventoryItem.upsert({ where: { sku: part.sku }, update: {}, create: { ...fields, quantityOnHand: 0 } });
+    const row = await prisma.inventoryItem.upsert({
+      where: { shopId_sku: { shopId: MAIN_SHOP_ID, sku: part.sku } },
+      update: {},
+      create: { ...fields, shopId: MAIN_SHOP_ID, quantityOnHand: 0 },
+    });
     items.set(part.sku, { id: row.id, unitPrice: Number(row.unitPrice) });
     const purchase = Math.max(0, target + (usage.get(part.sku) ?? 0) - row.quantityOnHand);
     if (purchase > 0) {
@@ -255,6 +275,8 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
 
     const workOrder = await prisma.workOrder.create({
       data: {
+        shopId: MAIN_SHOP_ID,
+        number: await nextNumber(prisma, MAIN_SHOP_ID, "workOrder"),
         vehicleId: vehicles[p.vehicle].id,
         mileageIn,
         complaint: p.job.complaint,
@@ -306,6 +328,8 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
       const paidAt = paid ? hoursLater(completedAt, 2 + rand() * 72) : null;
       const invoice = await prisma.invoice.create({
         data: {
+          shopId: MAIN_SHOP_ID,
+          number: await nextNumber(prisma, MAIN_SHOP_ID, "invoice"),
           workOrderId: workOrder.id,
           subtotal: new Prisma.Decimal(totals.subtotal),
           vatAmount: new Prisma.Decimal(totals.vat),
@@ -392,6 +416,95 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
   await book(0, futureSlot(2, "10:00"), "REQUESTED", "Brake fluid change (reminder)", true);
   await book(1, futureSlot(3, "13:00"), "REQUESTED", "Strange noise when turning", true);
   await book(12, futureSlot(5, "11:00"), "CONFIRMED", "Battery check", false);
+
+  // ── A second, smaller shop (multi-shop): Siam Garage ─────────────────────────
+  // Its own admin and price list, three customers — Jordan's login is linked here too, so
+  // the customer shop switcher has two shops — and one finished, paid job each.
+  await upsertShop(prisma, SECOND_SHOP_ID, SECOND_SHOP);
+  const siamAdmin = await prisma.user.upsert({
+    where: { email: "admin@siamgarage.example" },
+    update: {},
+    create: { email: "admin@siamgarage.example", firstName: "Nok", lastName: "Siriwan", role: "ADMIN", passwordHash, shopId: SECOND_SHOP_ID },
+  });
+  const siamPrices = await upsertPriceList(prisma, SECOND_SHOP_ID);
+  const jordanLogin = await prisma.user.findUnique({ where: { email: "jordan.lee@example.com" }, select: { id: true } });
+  const SIAM: [first: string, last: string, phone: string, email: string | null, login: boolean, car: [string, string, string, string, number, string, number], job: [string, string, number]][] = [
+    ["Jordan", "Lee", "081-234-5678", "jordan.lee@example.com", true, ["2ขค 4455", "กรุงเทพมหานคร", "Honda", "Jazz", 2017, "Blue", 88200], ["Oil change", "Scheduled oil change", 30]],
+    ["Wipa", "Chaiyasit", "086-555-1212", "wipa.c@example.com", false, ["5กล 7788", "กรุงเทพมหานคร", "Mazda", "2", 2022, "Red", 21400], ["A/C check and clean", "Air-con smells musty", 18]],
+    ["Tanawat", "Boonmee", "083-444-9090", null, false, ["81-5566", "สมุทรปราการ", "Toyota", "Hilux Revo", 2019, "White", 132500], ["Front brake pads replacement", "Brakes squeal", 9]],
+  ];
+  for (const [index, [firstName, lastName, phone, email, login, [plate, province, make, model, year, color, km], [service, complaint, daysAgo]]] of SIAM.entries()) {
+    const customer = await prisma.customer.create({
+      data: {
+        shopId: SECOND_SHOP_ID,
+        firstName,
+        lastName,
+        phone: normalizeThaiPhone(phone)!,
+        email,
+        userId: login ? (jordanLogin?.id ?? null) : null,
+        notes: `${DEMO_TAG} Siam Garage demo customer`,
+        createdAt: shopTime(60 - index * 5, "10:00"),
+      },
+    });
+    const vehicle = await prisma.vehicle.create({
+      data: {
+        shopId: SECOND_SHOP_ID,
+        customerId: customer.id,
+        vin: `SIAM${String(index + 1).padStart(13, "0")}`,
+        plate,
+        plateNormalized: normalizePlate(plate),
+        province,
+        make,
+        model,
+        year,
+        color,
+        mileage: km,
+        createdAt: customer.createdAt,
+      },
+    });
+    const price = PRICE_LIST.find((entry) => entry.name === service)!.price;
+    const totals = calculateTotals([price], []);
+    const checkedInAt = shopTime(daysAgo, "09:30");
+    const completedAt = hoursLater(checkedInAt, 3);
+    await prisma.workOrder.create({
+      data: {
+        shopId: SECOND_SHOP_ID,
+        number: await nextNumber(prisma, SECOND_SHOP_ID, "workOrder"),
+        vehicleId: vehicle.id,
+        mileageIn: km,
+        complaint,
+        diagnosis: "Checked on arrival",
+        workPerformed: service,
+        status: "COMPLETED",
+        createdById: siamAdmin.id,
+        createdAt: checkedInAt,
+        completedAt,
+        statusChanges: {
+          create: [
+            { toStatus: "CHECKED_IN", changedById: siamAdmin.id, createdAt: checkedInAt },
+            { fromStatus: "CHECKED_IN", toStatus: "IN_PROGRESS", changedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 1) },
+            { fromStatus: "IN_PROGRESS", toStatus: "QUALITY_CHECK", changedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 2) },
+            { fromStatus: "QUALITY_CHECK", toStatus: "COMPLETED", changedById: siamAdmin.id, createdAt: completedAt },
+          ],
+        },
+        serviceItems: {
+          create: [{ description: service, laborCost: price, catalogItemId: siamPrices.get(service) ?? null, addedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 1) }],
+        },
+        invoice: {
+          create: {
+            shopId: SECOND_SHOP_ID,
+            number: await nextNumber(prisma, SECOND_SHOP_ID, "invoice"),
+            subtotal: new Prisma.Decimal(totals.subtotal),
+            vatAmount: new Prisma.Decimal(totals.vat),
+            total: new Prisma.Decimal(totals.total),
+            status: "PAID",
+            issuedAt: completedAt,
+            paidAt: completedAt,
+          },
+        },
+      },
+    });
+  }
 
   return { skipped: false, workOrders: count };
 }

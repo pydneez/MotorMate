@@ -18,6 +18,7 @@ import {
   type ReportSummary,
   type RevenueTotals,
 } from "@motormate/types";
+import { queryShopId } from "../common/tenancy/tenancy";
 import { bangkokDayFilter } from "../common/utils/dates";
 import { PrismaService } from "../prisma/prisma.service";
 import { csvMoney, toCsv } from "./csv";
@@ -75,6 +76,16 @@ export function topParts(rows: ReportPartRow[]): Pick<ReportSummary["parts"], "t
     topByQuantity: [...rows].sort((a, b) => b.quantity - a.quantity || b.revenue - a.revenue || byName(a, b)).slice(0, TOP_PARTS),
     topByRevenue: [...rows].sort((a, b) => b.revenue - a.revenue || b.quantity - a.quantity || byName(a, b)).slice(0, TOP_PARTS),
   };
+}
+
+/**
+ * Raw SQL bypasses the automatic shop filter (common/tenancy), so every query here adds the
+ * current shop by hand: `AND <alias>."shopId" = <shop>`. Outside a request (unit tests,
+ * scripts) nothing is added, like the automatic filter.
+ */
+function inShop(alias: string): Prisma.Sql {
+  const shopId = queryShopId();
+  return shopId === null ? Prisma.empty : Prisma.sql`AND ${Prisma.raw(`"${alias}"`)}."shopId" = ${shopId}`;
 }
 
 @Injectable()
@@ -181,13 +192,14 @@ export class ReportsService {
         FROM "WorkOrder" w
         JOIN "Vehicle" v ON v."id" = w."vehicleId"
         WHERE w."status" = 'COMPLETED' AND w."completedAt" >= ${period.gte} AND w."completedAt" < ${period.lt}
+          ${inShop("w")}
       ),
       visits AS (
         SELECT v."customerId", COUNT(*)::int AS "jobs"
         FROM "WorkOrder" w
         JOIN "Vehicle" v ON v."id" = w."vehicleId"
         WHERE w."status" = 'COMPLETED' AND w."completedAt" < ${period.lt}
-          AND v."customerId" IN (SELECT "customerId" FROM served)
+          AND v."customerId" IN (SELECT "customerId" FROM served) ${inShop("w")}
         GROUP BY v."customerId"
       )
       SELECT (SELECT COUNT(*) FROM served)::int AS "served",
@@ -202,7 +214,7 @@ export class ReportsService {
              SUM(v."total") AS "total",
              COUNT(*)::int AS "count"
       FROM "Invoice" v
-      WHERE v."issuedAt" >= ${period.gte} AND v."issuedAt" < ${period.lt} AND v."status" <> 'VOID'
+      WHERE v."issuedAt" >= ${period.gte} AND v."issuedAt" < ${period.lt} AND v."status" <> 'VOID' ${inShop("v")}
       GROUP BY 1`;
     return rows;
   }
@@ -219,7 +231,7 @@ export class ReportsService {
       FROM "PartUsed" p
       JOIN "InventoryItem" i ON i."id" = p."inventoryItemId"
       JOIN "Invoice" v ON v."workOrderId" = p."workOrderId"
-      WHERE v."issuedAt" >= ${period.gte} AND v."issuedAt" < ${period.lt} AND v."status" <> 'VOID'
+      WHERE v."issuedAt" >= ${period.gte} AND v."issuedAt" < ${period.lt} AND v."status" <> 'VOID' ${inShop("v")}
       GROUP BY i."id", i."sku", i."name", i."quantityOnHand"`;
     return rows.map((row) => ({
       ...row,
@@ -269,7 +281,7 @@ export class ReportsService {
       SELECT COUNT(*)::int AS "completed",
              AVG(EXTRACT(EPOCH FROM (w."completedAt" - w."createdAt")) / 3600)::float8 AS "hours"
       FROM "WorkOrder" w
-      WHERE w."status" = 'COMPLETED' AND w."completedAt" >= ${period.gte} AND w."completedAt" < ${period.lt}`;
+      WHERE w."status" = 'COMPLETED' AND w."completedAt" >= ${period.gte} AND w."completedAt" < ${period.lt} ${inShop("w")}`;
     return { completed: Number(row?.completed ?? 0), hours: row?.hours ?? null };
   }
 
@@ -281,7 +293,7 @@ export class ReportsService {
       FROM "WorkOrder" w
       JOIN "User" u ON u."id" = w."mechanicId"
       LEFT JOIN "ServiceItem" s ON s."workOrderId" = w."id"
-      WHERE w."status" = 'COMPLETED' AND w."completedAt" >= ${period.gte} AND w."completedAt" < ${period.lt}
+      WHERE w."status" = 'COMPLETED' AND w."completedAt" >= ${period.gte} AND w."completedAt" < ${period.lt} ${inShop("w")}
       GROUP BY u."id", u."firstName", u."lastName"
       ORDER BY "completed" DESC, "labour" DESC`;
     return rows.map((row) => ({
@@ -297,7 +309,7 @@ export class ReportsService {
       SELECT COALESCE(SUM(i."quantityOnHand" * i."unitCost"), 0) AS "value",
              (COUNT(*) FILTER (WHERE i."quantityOnHand" <= i."reorderLevel"))::int AS "low"
       FROM "InventoryItem" i
-      WHERE i."isActive"`;
+      WHERE i."isActive" ${inShop("i")}`;
     return { stockValueAtCost: amount(row?.value), lowStockCount: Number(row?.low ?? 0) };
   }
 

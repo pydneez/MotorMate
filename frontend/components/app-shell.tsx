@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { signOut } from "next-auth/react";
 import {
   BarChart3,
+  Building2,
   Calendar,
   Car,
   ChevronDown,
@@ -16,6 +17,7 @@ import {
   Package,
   Receipt,
   Settings,
+  Store,
   UserCircle,
   UserCog,
   Users,
@@ -24,6 +26,7 @@ import {
 } from "lucide-react";
 import type { AuthUser } from "@motormate/types";
 import { navFor, ROLE_LABELS } from "@/lib/nav";
+import { ShopSwitcher } from "./shop-switcher";
 
 const ICONS: Record<string, LucideIcon> = {
   "": LayoutDashboard,
@@ -36,6 +39,8 @@ const ICONS: Record<string, LucideIcon> = {
   reports: BarChart3,
   staff: UserCog,
   settings: Settings,
+  shops: Store,
+  platform: Building2,
 };
 
 function NavLinks({ user, onNavigate }: { user: AuthUser; onNavigate?: () => void }) {
@@ -173,6 +178,7 @@ export function AppShell({ user, children }: { user: AuthUser; children: React.R
               <Menu className="h-5 w-5" />
             </button>
             <span className="text-lg font-bold md:hidden">MotorMate</span>
+            <ShopSwitcher user={user} />
           </div>
           <UserMenu user={user} />
         </header>

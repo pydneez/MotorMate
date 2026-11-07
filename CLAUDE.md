@@ -65,8 +65,8 @@ The **backend owns credentials and issues the API token**; NextAuth only holds i
    `authorize()` calls `POST /auth/login` on the backend.
 2. The backend checks the bcrypt hash, rejects deactivated users (`isActive = false`), and
    returns `{ accessToken, user }`. `accessToken` is an HS256 JWT signed with
-   `JWT_SECRET`, claims `{ sub, email, role }`, 8h expiry (`JwtClaimsSchema` in
-   `packages/types`).
+   `JWT_SECRET`, claims `{ sub, email, role, shopId }`, 8h expiry (`JwtClaimsSchema` in
+   `packages/types`). `shopId` is the shop the token works in (null for the platform admin).
 3. NextAuth stores `accessToken` + user in its own session cookie (encrypted with
    `NEXTAUTH_SECRET`). The frontend sends `Authorization: Bearer <accessToken>` on every
    API call (`frontend/lib/api.ts`).
@@ -79,11 +79,23 @@ Why not "share NextAuth's JWT with the backend": NextAuth's session token is an
 never touches the database, so password checks have to live in the backend anyway.
 `NEXTAUTH_SECRET` and `JWT_SECRET` are therefore **independent** values.
 
-Role (`ADMIN` | `ADVISOR` | `MECHANIC` | `CUSTOMER`) is stored on `User`. There is no
+Role (`PLATFORM_ADMIN` | `ADMIN` | `ADVISOR` | `MECHANIC` | `CUSTOMER`) is stored on `User`. There is no
 Cognito (dropped from the kickoff design — explain in the final project document);
 RBAC is entirely our own code.
 
-Customer self-registration (`POST /auth/register`) creates a `CUSTOMER` user. If a
+**Multi-shop (Step 15).** One deployment serves many garages ("shops"). Staff belong to one
+shop (`User.shopId`), and their token carries it. A customer's login belongs to no shop: it
+has one `Customer` record **per shop** it's linked to, and the token carries the shop they're
+working in (`User.lastShopId` remembers it for the next sign-in). Customers switch with
+`POST /auth/switch-shop` and link another shop with `POST /auth/shops` — both return a new
+token; the frontend swaps it in NextAuth's jwt callback (`useSession().update({ shopId,
+link })`), so the browser never handles the token itself. `JwtStrategy` re-checks on every
+request that the shop is still active (staff) or still linked (customers) — a suspended shop
+cuts off existing tokens at once. The `PLATFORM_ADMIN` (`platform@motormate.example` in the
+seed) is in no shop and only sees `/app/platform`.
+
+Customer self-registration (`POST /auth/register`, with the `shopId` picked on the form)
+creates a `CUSTOMER` user in that shop. If a
 shop-created `Customer` record with **both** the same email and the same (normalized)
 phone exists and has no login yet, the new user is linked to it; otherwise a new
 `Customer` is created and staff can merge later. Email verification would be the
@@ -139,9 +151,11 @@ backend/src/
   appointments/         "Lite" booking: request, confirm, reschedule, cancel, no-show
                         (check-in itself is POST /work-orders with appointmentId)
   reports/              admin-only summary, revenue totals, CSV exports (csv.ts)
-  settings/             SettingsService (global): the shop's details (GET any login, PATCH admin)
+  settings/             SettingsService (global): the current shop's details (GET any login, PATCH admin)
+  shops/                GET /shops + POST /shops/register (public); /platform/shops (PLATFORM_ADMIN)
   services/             the price list: GET /services (what you see depends on the role), admin CRUD
   common/
+    tenancy/             request shop context, the Prisma shop filter, requireShop/nextShopNumber
     decorators/          @Public, @Roles, @CurrentUser
     guards/              JwtAuthGuard, RolesGuard (both global)
     pipes/               ZodValidationPipe
@@ -191,8 +205,12 @@ schema before calling the API. List search and paging live in the URL.
   deactivate staff without deleting history.
 - **Customer** — name, phone, optional email, LINE ID; optional 1:1 link to a `User`
   (customers who have portal access). Has many Vehicles.
-- **Vehicle** — VIN (unique), plate + province, make/model/year/color, current mileage.
-- **WorkOrder** — one shop visit: human number (`WO-0001`), mileage at check-in,
+- **Shop** — a garage on MotorMate: name, address, phone, email, tax ID (what invoices print),
+  `isActive` (the platform admin suspends), and the per-shop counters `lastWorkOrderNumber` /
+  `lastInvoiceNumber`. Customer, Vehicle, WorkOrder, Invoice, InventoryItem and
+  ServiceCatalogItem carry `shopId`; their children are a shop's through their parent.
+- **Vehicle** — VIN (unique per shop), plate + province, make/model/year/color, current mileage.
+- **WorkOrder** — one shop visit: human number (`WO-0001`, per shop), mileage at check-in,
   complaint, diagnosis, work performed, assigned mechanic, status.
 - **WorkOrderStatusChange** — every status transition with who/when; doubles as the audit
   trail and the vehicle service timeline.
@@ -201,7 +219,6 @@ schema before calling the API. List search and paging live in the URL.
 - **ServiceCatalogItem** — the price list: routine jobs at a fixed price (name unique,
   category, price excl. VAT, `bookable` = customers can pick it, `isActive`; never deleted).
 - **AppointmentService** — a service picked when booking, with name + price snapshot.
-- **ShopSettings** — one row (id 1): the shop's name, address, phone, email, tax ID.
 - **InventoryItem** — part catalog (SKU, category, qty on hand, cost, price, supplier,
   reorder level).
 - **PartUsed** — InventoryItem consumed on a WorkOrder, with price snapshot.
@@ -339,7 +356,7 @@ schema before calling the API. List search and paging live in the URL.
     integration, no un-paying, `VOID` unused for now.
   - Printing uses the browser's print dialog; the app shell is hidden with `print:hidden`.
     Shop details (name, address, phone, email, tax ID) come from **Settings → Shop
-    details** (`SettingsService.shop()`; `DEFAULT_SHOP_DETAILS` until the row exists) — the
+    details** (`SettingsService.shop()`: the current shop's row, given at registration) — the
     page, the PDF, the email signature and "call us on …" messages. Opening hours stay in
     `SHOP.hours` (booking rules use them). A PDF already stored in S3 keeps the details it
     was made with.
@@ -383,7 +400,7 @@ schema before calling the API. List search and paging live in the URL.
   recorded through work orders. Items are deactivated, never deleted. Low stock means
   on hand ≤ reorder level. Prices exclude VAT; a price below cost only warns.
 - **Mileage never decreases** except by an admin correction (audited).
-- **Duplicates:** VIN is a hard unique constraint. Same phone (customer) or same
+- **Duplicates:** VIN is a hard unique constraint within a shop. Same phone (customer) or same
   plate+province (vehicle) only raises a "possible duplicate" warning.
 - **Visits** (`GET /customers/:id/visits`, admin/advisor, `VisitSummary`): every job on any of
   the customer's vehicles (cancelled included), newest check-in first, paged 10 on the
@@ -409,6 +426,34 @@ schema before calling the API. List search and paging live in the URL.
     `province` (Thai name, from `THAI_PROVINCES`). `plateNormalized` (no spaces/dashes)
     is what search uses.
 - Money is `Decimal(10,2)` in THB; VAT 7%.
+- **Multi-shop isolation** (`backend/src/common/tenancy`) — "lite": shops register
+  themselves, customers link to several, a platform admin suspends.
+  - **How it's enforced:** every request runs in an AsyncLocalStorage store
+    (`TenancyMiddleware`); `JwtStrategy` puts the user's shop in it. A Prisma query extension
+    (`shop-scope.extension.ts`) adds `shopId = <current shop>` to every query on a shop's
+    tables (and through the parent for child tables), and refuses a create for another shop.
+    Services keep writing `prisma.customer.findMany(...)` and can't forget the filter, so
+    another shop's record is simply **not found (404)**. Fails closed: a request with no
+    shop (public route, platform admin) touching a shop's table gets 403. `runAsShop()` /
+    `runUnscoped()` are the explicit exits (sign-up, the daily jobs looping over shops, the
+    platform list). Not covered automatically: raw SQL (Reports adds `inShop()` by hand) and
+    `User` / `Shop` / `AuditLog` (staff queries filter on `shopId` themselves).
+    `backend/test/shops.int-spec.ts` tries every kind of record across shops.
+  - **Production plan** (final document): PostgreSQL row-level security as a second wall
+    under the app filter — not built.
+  - **Per shop:** WO-/INV- numbers (atomic counters on `Shop`), VIN, SKU, service names,
+    customer emails, shop details, price list, reports, reminders. Logins (emails) are global.
+  - **Registration** (`/register-shop`, public): shop details + first admin in one
+    transaction; active at once; the admin is signed in. **Platform admin**
+    (`/app/platform`): every shop with staff / customers / jobs in the last 30 days, Suspend
+    (confirm dialog) / Reactivate, both audited (`shop.suspended` / `shop.reactivated`). A
+    suspended shop's staff can't sign in, its customers can't open it, and it leaves the
+    sign-up list; nothing is deleted.
+  - **Customers:** pick a shop at sign-up; **My Shops** (`/app/shops`) links more (their
+    existing record there is claimed when email and phone match, else one is created from
+    their profile); the header's shop menu switches. One online account per phone still
+    holds across all shops.
+  - **Daily jobs** run once per active shop (`runAsShop`), summed.
 
 ## Current priority order (do not build out of order without checking in)
 
@@ -501,10 +546,9 @@ shop details + the price list, used by labour lines, bookings and Reports (136�
 PR #27) and Step 13 — a required reason for list-price changes, My appointments width,
 scrolling tables (166–167; PR #28). Step 14 — the demo account in "full" mode: CloudFront
 with the ALB locked to it, least-privilege roles, Secrets Manager, Multi-AZ + a failover
-test (168–171) — is on `feat/demo-infra`. **Next:** multi-shop ("lite": shops register,
-customers link to several — the team is deciding; until then it stays under Explicitly out
-of scope), the final document, the demo deploy and end-to-end tests (161) in the week of
-Nov 9.
+test (168–171; PR #29). Step 15 — multi-shop "lite" + platform admin (174–177) — is on
+`feat/multi-shop`. **Next:** the final document, the demo deploy and end-to-end tests (161)
+in the week of Nov 9.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -552,7 +596,9 @@ no domain in the demo account); Multi-AZ only in the demo account (cost — for 
 single-AZ with point-in-time backups would do; Multi-AZ shows the design scales); the dev
 account (Learner Lab) has only `LabRole` and no CloudFront, so the demo account runs the
 production-style "full" mode (CloudFront, own roles, Secrets Manager) and dev keeps API
-Gateway + `LabRole` + env-var secrets;
+Gateway + `LabRole` + env-var secrets; one shop → many shops on one deployment (shared
+tables with a `shopId` and an automatic app-level filter; row-level security in PostgreSQL
+is the production plan) with self-registration and a platform admin to suspend shops;
 reports show revenue, not profit (no cost snapshot on parts used); no customer "My visits"
 page (My Invoices + each vehicle's service history already show it; staff get a Visits list
 per customer); labour is a fixed-price list plus custom lines ("middle way": mechanics may
@@ -602,7 +648,8 @@ pnpm lint                      # ESLint: backend (eslint.config.mjs, ESLint 9) +
   image against an empty database.
 
 Seeded logins (password `password123`): `admin@`, `advisor@`, `mechanic@motormate.example`,
-customer `jordan.lee@example.com`.
+customer `jordan.lee@example.com`, platform admin `platform@motormate.example`. All in the
+shop `shop_main` (MotorMate Auto Service).
 
 **Demo data** (`backend/prisma/seed-demo.ts`, `npm run db:seed:demo`; on AWS
 `bash infra/scripts/seed.sh --demo`): ~6 months of history on top of the seed — 12
@@ -611,7 +658,9 @@ vehicles, 45 completed jobs with invoices (most paid), one open job per status, 
 mechanic (`mechanic2@`), stock purchases + parts used as movements, routine labour linked to
 the price list (`prisma/price-list.ts`, 8 services, also in the plain seed), recommendations in every
 reminder state, appointments in every status. Dated relative to today, seeded random (same
-every run), runs once (skips if demo customers exist), sends nothing.
+every run), runs once (skips if demo customers exist), sends nothing. Also a **second shop**,
+Siam Garage (`shop_siam`, admin `admin@siamgarage.example`), with its own price list and 3
+customers — Jordan is linked to it too, so the shop switcher has something to switch.
 `backend/test/seed-demo.int-spec.ts` checks it keeps the app's rules (invoice totals, stock
 = movements, one open job per vehicle, mileage up, shop-hour slots).
 
@@ -725,8 +774,8 @@ items are removed from it.
 
 ## Explicitly out of scope for now
 
-- Multi-branch/multi-location support (mentioned as a future NFR in the kickoff report,
-  not part of this build).
+- Multi-branch support *within one business* (shared stock, staff across branches). Separate
+  shops are supported (Step 15), each fully on its own.
 - SMS reminders — SNS SMS is denied in Learner Lab; email only.
 - Cognito — replaced by NextAuth.js, don't reintroduce without discussion.
 - Appointment slot/capacity management, drag-and-drop calendars — appointments are "Lite".

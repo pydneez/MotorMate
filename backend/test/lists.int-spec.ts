@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import * as bcrypt from "bcryptjs";
 import request = require("supertest");
 import { testDatabaseUrl } from "./integration-env";
+import { createTestShop, shopOf, TEST_SHOP_ID, testNumber } from "./test-shop";
 
 /** List filters over real HTTP + Postgres: invoice and work-order date ranges, inventory sorting. */
 
@@ -35,33 +36,40 @@ beforeAll(async () => {
   await app.init();
   prisma = app.get(PrismaService);
   await resetDatabase();
+  await createTestShop(prisma);
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const users = {} as Record<keyof typeof tokens, { id: string }>;
   for (const [key, role] of [["advisor", "ADVISOR"], ["mechanic", "MECHANIC"], ["customer", "CUSTOMER"]] as const) {
-    users[key] = await prisma.user.create({ data: { email: `${key}@lists.test`, role, firstName: "Test", lastName: "Lists", passwordHash } });
+    users[key] = await prisma.user.create({ data: { email: `${key}@lists.test`, role, firstName: "Test", lastName: "Lists", passwordHash, ...shopOf(role) } });
+  }
+  const signIn = async (key: keyof typeof tokens) => {
     const res = await request(app.getHttpServer()).post("/auth/login").send({ email: `${key}@lists.test`, password: PASSWORD }).expect(200);
     tokens[key] = res.body.accessToken;
-  }
+  };
+  await signIn("advisor");
+  await signIn("mechanic");
 
   const vehicleFor = async (name: string, phone: string, vin: string, userId?: string) => {
-    const customer = await prisma.customer.create({ data: { firstName: name, lastName: "Lists", phone, userId } });
+    const customer = await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: name, lastName: "Lists", phone, userId } });
     return prisma.vehicle.create({
-      data: { customerId: customer.id, vin, plate: "1กข 1234", plateNormalized: "1กข1234", province: "กรุงเทพมหานคร", make: "Honda", model: "City", year: 2020, mileage: 50000 },
+      data: { shopId: TEST_SHOP_ID, customerId: customer.id, vin, plate: "1กข 1234", plateNormalized: "1กข1234", province: "กรุงเทพมหานคร", make: "Honda", model: "City", year: 2020, mileage: 50000 },
     });
   };
   const mine = await vehicleFor("Jo", "+66810000011", "VINLISTS000000001", users.customer.id);
   const other = await vehicleFor("Kim", "+66810000012", "VINLISTS000000002");
   customerIds.jo = mine.customerId;
   customerIds.kim = other.customerId;
+  // A customer signs in once their login is linked to a Customer record in a shop.
+  await signIn("customer");
 
   // WO-0001..0004 and INV-0001..0004, each checked in and invoiced at `at`.
   const job = async (vehicleId: string, at: string) => {
     const when = new Date(at);
     const workOrder = await prisma.workOrder.create({
-      data: { vehicleId, mileageIn: 50000, complaint: "Service", status: "COMPLETED", completedAt: when, createdById: users.advisor.id, createdAt: when },
+      data: { shopId: TEST_SHOP_ID, number: await testNumber(prisma, "workOrder"), vehicleId, mileageIn: 50000, complaint: "Service", status: "COMPLETED", completedAt: when, createdById: users.advisor.id, createdAt: when },
     });
-    await prisma.invoice.create({ data: { workOrderId: workOrder.id, subtotal: 100, vatAmount: 7, total: 107, issuedAt: when } });
+    await prisma.invoice.create({ data: { shopId: TEST_SHOP_ID, number: await testNumber(prisma, "invoice"), workOrderId: workOrder.id, subtotal: 100, vatAmount: 7, total: 107, issuedAt: when } });
   };
   await job(mine.id, "2026-09-30T16:30:00Z"); // 30 Sep 23:30 Bangkok — before October
   await job(mine.id, "2026-10-01T00:30:00Z"); // 1 Oct 07:30 — inside
@@ -79,7 +87,7 @@ beforeAll(async () => {
   await booking(mine, "2026-11-20T03:00:00Z", "REQUESTED", users.customer.id);
 
   const item = (sku: string, name: string, quantityOnHand: number, unitPrice: number, isActive = true) => ({
-    sku, name, category: "Filters", quantityOnHand, unitCost: 50, unitPrice, reorderLevel: 1, isActive,
+    shopId: TEST_SHOP_ID, sku, name, category: "Filters", quantityOnHand, unitCost: 50, unitPrice, reorderLevel: 1, isActive,
   });
   await prisma.inventoryItem.createMany({
     data: [

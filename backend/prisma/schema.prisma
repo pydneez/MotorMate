@@ -9,6 +9,8 @@ datasource db {
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
 enum Role {
+  /// Runs the platform (all shops): lists shops, suspends/reactivates them. Belongs to no shop.
+  PLATFORM_ADMIN
   ADMIN
   ADVISOR
   MECHANIC
@@ -70,10 +72,43 @@ enum NotificationStatus {
   SKIPPED
 }
 
+// ─── Shops (one deployment, many shops) ─────────────────────────────────────
+
+/// A shop using MotorMate. Everything a shop owns carries its shopId; the API scopes every
+/// query to the signed-in user's shop (backend/src/common/tenancy).
+model Shop {
+  id       String  @id @default(cuid())
+  name     String
+  /// One line per row of the printed address.
+  address  String
+  /// E.164, like customer phones.
+  phone    String
+  email    String?
+  taxId    String
+  /// A suspended shop's staff can't sign in and its customers can't book (platform admin).
+  isActive Boolean @default(true)
+
+  /// Per-shop numbering: WO-0001 and INV-0001 restart for each shop. Incremented atomically.
+  lastWorkOrderNumber Int @default(0)
+  lastInvoiceNumber   Int @default(0)
+
+  users          User[]
+  customers      Customer[]
+  vehicles       Vehicle[]
+  workOrders     WorkOrder[]
+  invoices       Invoice[]
+  inventoryItems InventoryItem[]
+  services       ServiceCatalogItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // ─── Accounts ────────────────────────────────────────────────────────────────
 
 model User {
   id           String    @id @default(cuid())
+  /// One login across all shops.
   email        String    @unique
   passwordHash String
   firstName    String
@@ -82,8 +117,14 @@ model User {
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
 
-  /// Set only for CUSTOMER users who have portal access.
-  customer Customer?
+  /// Staff belong to one shop; customers and the platform admin to none.
+  shop   Shop?   @relation(fields: [shopId], references: [id])
+  shopId String?
+  /// Customers: the shop they used last, picked again at sign-in.
+  lastShopId String?
+
+  /// CUSTOMER users: one Customer record per shop they're linked to.
+  customers Customer[]
 
   assignedWorkOrders WorkOrder[]             @relation("AssignedMechanic")
   createdWorkOrders  WorkOrder[]             @relation("WorkOrderCreatedBy")
@@ -94,23 +135,27 @@ model User {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([shopId])
 }
 
 // ─── Customers & vehicles ────────────────────────────────────────────────────
 
 model Customer {
   id        String  @id @default(cuid())
+  shop      Shop    @relation(fields: [shopId], references: [id])
+  shopId    String
   firstName String
   lastName  String
   /// E.164, e.g. +66812345678 — see normalizeThaiPhone in packages/types.
   phone     String
   /// Optional: walk-in customers may not give one, but reminders need it.
-  email     String? @unique
+  email     String?
   lineId    String?
   notes     String?
 
   user   User?   @relation(fields: [userId], references: [id])
-  userId String? @unique
+  userId String?
 
   /// Email notifications go through an SNS topic: one subscription per customer, filtered
   /// on their id. Set when subscribed; the customer confirms it once from AWS's email.
@@ -126,16 +171,22 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([phone])
+  /// Unique within a shop: the same person can be a customer of several shops.
+  @@unique([shopId, email])
+  @@unique([shopId, userId])
+  @@index([shopId, phone])
   @@index([lastName, firstName])
 }
 
 model Vehicle {
   id         String   @id @default(cuid())
+  shop       Shop     @relation(fields: [shopId], references: [id])
+  shopId     String
   customer   Customer @relation(fields: [customerId], references: [id])
   customerId String
 
-  vin             String  @unique
+  /// Unique within a shop: the same car at two shops is two records.
+  vin             String
   /// As typed for display, e.g. "1กข 1234".
   plate           String
   /// Plate with spaces/dashes stripped — what search matches on.
@@ -155,6 +206,7 @@ model Vehicle {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([shopId, vin])
   @@index([plateNormalized, province])
   @@index([customerId])
 }
@@ -163,8 +215,10 @@ model Vehicle {
 
 model WorkOrder {
   id     String @id @default(cuid())
-  /// Human-facing number, displayed as WO-0001.
-  number Int    @unique @default(autoincrement())
+  shop   Shop   @relation(fields: [shopId], references: [id])
+  shopId String
+  /// Human-facing number, displayed as WO-0001 — per shop, from Shop.lastWorkOrderNumber.
+  number Int
 
   vehicle       Vehicle @relation(fields: [vehicleId], references: [id])
   vehicleId     String
@@ -193,6 +247,7 @@ model WorkOrder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([shopId, number])
   @@index([status])
   @@index([vehicleId])
   @@index([mechanicId])
@@ -236,7 +291,9 @@ model ServiceItem {
 /// The fixed-price list of routine services (Settings → Services & prices). Never deleted.
 model ServiceCatalogItem {
   id        String   @id @default(cuid())
-  name      String   @unique
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  shopId    String
+  name      String
   category  String
   /// THB, excl. VAT.
   price     Decimal  @db.Decimal(10, 2)
@@ -248,6 +305,8 @@ model ServiceCatalogItem {
 
   serviceItems        ServiceItem[]
   appointmentServices AppointmentService[]
+
+  @@unique([shopId, name])
 }
 
 /// A service picked when booking, with its name and price as they were then.
@@ -263,24 +322,13 @@ model AppointmentService {
   @@unique([appointmentId, catalogItemId])
 }
 
-/// The shop's details on invoices, the PDF and emails (Settings → Shop details). One row, id 1.
-model ShopSettings {
-  id        Int      @id @default(1)
-  name      String
-  /// One line per row of the printed address.
-  address   String
-  /// E.164, like customer phones.
-  phone     String
-  email     String?
-  taxId     String
-  updatedAt DateTime @updatedAt
-}
-
 // ─── Inventory ───────────────────────────────────────────────────────────────
 
 model InventoryItem {
   id             String  @id @default(cuid())
-  sku            String  @unique
+  shop           Shop    @relation(fields: [shopId], references: [id])
+  shopId         String
+  sku            String
   name           String
   category       String
   quantityOnHand Int     @default(0)
@@ -299,6 +347,7 @@ model InventoryItem {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([shopId, sku])
   @@index([name])
   @@index([category])
 }
@@ -336,8 +385,10 @@ model StockMovement {
 
 model Invoice {
   id          String        @id @default(cuid())
-  /// Human-facing number, displayed as INV-0001.
-  number      Int           @unique @default(autoincrement())
+  shop        Shop          @relation(fields: [shopId], references: [id])
+  shopId      String
+  /// Human-facing number, displayed as INV-0001 — per shop, from Shop.lastInvoiceNumber.
+  number      Int
   workOrder   WorkOrder     @relation(fields: [workOrderId], references: [id])
   workOrderId String        @unique
   subtotal    Decimal       @db.Decimal(10, 2)
@@ -349,6 +400,8 @@ model Invoice {
   pdfKey      String?
   issuedAt    DateTime      @default(now())
   paidAt      DateTime?
+
+  @@unique([shopId, number])
 }
 
 // ─── Reminders & appointments ────────────────────────────────────────────────

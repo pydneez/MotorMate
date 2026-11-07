@@ -44,13 +44,14 @@ afterAll(async () => {
 describe("demo seed", () => {
   it("runs only once", async () => {
     await expect(seedDemo(prisma, NOW)).resolves.toEqual({ skipped: true, workOrders: 0 });
-    expect(await prisma.workOrder.count()).toBe(50);
+    // 50 at the main shop, 3 at the second shop (Siam Garage).
+    expect(await prisma.workOrder.count()).toBe(53);
   });
 
   it("invoices every completed job with totals that match its lines, and nothing else", async () => {
     const jobs = await prisma.workOrder.findMany({ include: { serviceItems: true, partsUsed: true, invoice: true } });
     const completed = jobs.filter((job) => job.status === "COMPLETED");
-    expect(completed).toHaveLength(45);
+    expect(completed).toHaveLength(48);
     for (const job of jobs) {
       if (job.status !== "COMPLETED") {
         expect(job.invoice).toBeNull();
@@ -121,7 +122,25 @@ describe("demo seed", () => {
       expect(line.description).toBe(line.catalogItem!.name);
       expect(Number(line.laborCost)).toBe(Number(line.catalogItem!.price));
     }
-    expect(await prisma.serviceCatalogItem.count()).toBe(8);
+    // Each shop has its own price list, and its jobs only use that shop's services.
+    expect(await prisma.serviceCatalogItem.groupBy({ by: ["shopId"], _count: { _all: true }, orderBy: { shopId: "asc" } })).toEqual([
+      { shopId: "shop_main", _count: { _all: 8 } },
+      { shopId: "shop_siam", _count: { _all: 8 } },
+    ]);
+    const jobShops = await prisma.serviceItem.findMany({
+      where: { catalogItemId: { not: null } },
+      select: { workOrder: { select: { shopId: true } }, catalogItem: { select: { shopId: true } } },
+    });
+    for (const line of jobShops) expect(line.catalogItem!.shopId).toBe(line.workOrder.shopId);
+  });
+
+  it("numbers each shop's work orders and invoices from 1, with the counters in step", async () => {
+    for (const shop of await prisma.shop.findMany()) {
+      const jobs = await prisma.workOrder.findMany({ where: { shopId: shop.id }, select: { number: true }, orderBy: { number: "asc" } });
+      expect(jobs.map((job) => job.number)).toEqual(jobs.map((_, i) => i + 1));
+      expect(shop.lastWorkOrderNumber).toBe(jobs.length);
+      expect(shop.lastInvoiceNumber).toBe(await prisma.invoice.count({ where: { shopId: shop.id } }));
+    }
   });
 
   it("gives the reports and reminders something to show", async () => {
