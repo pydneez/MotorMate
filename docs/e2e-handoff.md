@@ -5,9 +5,16 @@ Jira: **CLOUDAPPG3-161**. Browser tests for the main flows, written by whoever p
 library, which drives Playwright) or **Playwright** directly. The scenarios below don't
 depend on the tool.
 
-What's already covered, so these tests can focus on the screens: ~350 backend unit tests,
-~100 API + real-database integration tests (`npm run test:integration`), and
+What's already covered, so these tests can focus on the screens: 385 unit tests (backend
+376, frontend 9), 133 API + real-database integration tests in 10 suites
+(`npm run test:integration`, including `shops.int-spec.ts` for isolation between shops), and
 `infra/scripts/smoke.sh` against a deployed environment.
+
+**What the final report needs from this task** (section 13.2, a placeholder until then):
+for each scenario, the test script and a screenshot of its result (for Robot Framework the
+`log.html` / `report.html` summary; for Playwright the HTML report), plus one line on how
+to run them. Scenarios 1, 2, 4 and 9 are the minimum; the example report from an earlier
+year (QikVid) used login/logout, sign-up and two main flows.
 
 ## Running the app for the tests
 
@@ -52,6 +59,19 @@ Prefer what a user sees — labels, button text, headings, ARIA roles — over C
 - **Sidebar:** links named after the section (`Work Orders`, `Customers`, `Reports` …).
 - **Tabs:** `role="tab"` with `aria-selected` (work orders, appointments).
 - **Dialogs:** `role="dialog"`; the confirm button is the last button in it.
+- **Shop menu (customers):** the shop name in the top bar is a `button` with
+  `aria-haspopup="menu"`; the menu shows "Your shops", one item per shop (the current one
+  has a tick, `aria-label="Current shop"`) and the link `Link another shop`. Staff see the
+  shop name as plain text.
+- **Sign-up:** the shop picker is the select labelled `Your garage`; leaving it empty shows
+  "Choose your shop".
+- **Register your shop** (`/register-shop`): fields `Shop name`, `Address (up to 4 lines)`,
+  `Phone`, `Email (optional)`, `Tax ID`, `First name`, `Last name`, `Email`, `Password`,
+  `Confirm password`; button `Register shop`.
+- **Platform shops** (`/app/platform`): one table row per shop; `Suspend` opens a dialog
+  whose confirm button is `Suspend shop`; a suspended row has the badge `Suspended` and a
+  `Reactivate` button.
+- **My Shops** (`/app/shops`): `Link this shop` / `Switch to this shop` per shop.
 - **Work order:** status buttons are named for the action (`Start diagnosis`, `Start repair`,
   `Waiting for parts`, `Parts arrived — resume`, `Send to quality check`,
   `Pass QC & invoice`, `Fail QC — back to repair`, `Cancel job`); the progress bar is
@@ -87,10 +107,25 @@ Prefer what a user sees — labels, button text, headings, ARIA roles — over C
 7. **Reports (admin):** presets change the period; From/To month range; "Choose at most 12
    months" on a 13-month range; CSV download button gives a file.
 8. **Customer page (advisor):** Visits list shows the customer's jobs with invoice links.
+9. **Register a shop:** fill `/register-shop` (use a unique email, e.g. with a timestamp) →
+   lands on `/app` with the new shop's name in the top bar; Customers and Settings →
+   Services & prices are empty.
+10. **Isolation in the browser:** as `admin@siamgarage.example`, open the URL of a
+    MotorMate Auto Service customer or work order (copy it as `admin@motormate.example`
+    first) → the 404 page ("This page could not be found"); the Customers list shows only Siam Garage's 3 customers.
+11. **Customer in two shops:** as `jordan.lee@example.com`, open the shop menu → choose
+    Siam Garage → My Vehicles shows the Honda Jazz only; switch back → the Civic and
+    Fortuner. Signing out and in again opens the last shop used.
+12. **Platform admin:** as `platform@motormate.example`, `/app` redirects to the Shops page;
+    Suspend the shop created in scenario 9 → signing in as its admin shows "This shop has
+    been suspended"; Reactivate → sign-in works again. (Suspend only a shop the test made;
+    never Siam Garage or MotorMate Auto Service on the demo site.)
 
 ## Notes
 
 - Times are Bangkok (UTC+7); booking rules use the shop's hours (`SHOP.hours`).
 - Emails aren't sent locally (they're written to the backend log), so don't assert on them.
+- Tests that create shops or customers leave them behind: use a database you can reset
+  locally, and on the demo site only read, or suspend only what the test itself created.
 - Run against a production build (`docker compose --profile app up --build`) if dev-mode
   page compiles make the first visits slow.
