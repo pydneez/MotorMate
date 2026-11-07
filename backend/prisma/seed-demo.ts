@@ -104,9 +104,11 @@ function random(seed: number) {
 }
 
 export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Promise<{ skipped: boolean; workOrders: number }> {
-  if (await prisma.customer.findFirst({ where: { notes: { contains: DEMO_TAG } }, select: { id: true } })) {
-    return { skipped: true, workOrders: 0 };
-  }
+  // Each part runs once: the main shop's history, and the second shop (added later, so a
+  // database seeded before multi-shop still gets it on the next run).
+  const mainDone = !!(await prisma.customer.findFirst({ where: { shopId: MAIN_SHOP_ID, notes: { contains: DEMO_TAG } }, select: { id: true } }));
+  const siamDone = !!(await prisma.shop.findUnique({ where: { id: SECOND_SHOP_ID }, select: { id: true } }));
+  if (mainDone && siamDone) return { skipped: true, workOrders: 0 };
   const rand = random(424);
   const pick = <T>(items: readonly T[]) => items[Math.floor(rand() * items.length)];
   const today = bangkokParts(now).date;
@@ -129,6 +131,101 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
 
   // ── People ──────────────────────────────────────────────────────────────────
   const passwordHash = await bcrypt.hash(PASSWORD, 10);
+
+  /** Siam Garage; returns its number of work orders. */
+  const seedSecondShop = async (): Promise<number> => {
+    // ── A second, smaller shop (multi-shop): Siam Garage ─────────────────────────
+    // Its own admin and price list, three customers — Jordan's login is linked here too, so
+    // the customer shop switcher has two shops — and one finished, paid job each.
+    await upsertShop(prisma, SECOND_SHOP_ID, SECOND_SHOP);
+    const siamAdmin = await prisma.user.upsert({
+      where: { email: "admin@siamgarage.example" },
+      update: {},
+      create: { email: "admin@siamgarage.example", firstName: "Nok", lastName: "Siriwan", role: "ADMIN", passwordHash, shopId: SECOND_SHOP_ID },
+    });
+    const siamPrices = await upsertPriceList(prisma, SECOND_SHOP_ID);
+    const jordanLogin = await prisma.user.findUnique({ where: { email: "jordan.lee@example.com" }, select: { id: true } });
+    const SIAM: [first: string, last: string, phone: string, email: string | null, login: boolean, car: [string, string, string, string, number, string, number], job: [string, string, number]][] = [
+      ["Jordan", "Lee", "081-234-5678", "jordan.lee@example.com", true, ["2ขค 4455", "กรุงเทพมหานคร", "Honda", "Jazz", 2017, "Blue", 88200], ["Oil change", "Scheduled oil change", 30]],
+      ["Wipa", "Chaiyasit", "086-555-1212", "wipa.c@example.com", false, ["5กล 7788", "กรุงเทพมหานคร", "Mazda", "2", 2022, "Red", 21400], ["A/C check and clean", "Air-con smells musty", 18]],
+      ["Tanawat", "Boonmee", "083-444-9090", null, false, ["81-5566", "สมุทรปราการ", "Toyota", "Hilux Revo", 2019, "White", 132500], ["Front brake pads replacement", "Brakes squeal", 9]],
+    ];
+    for (const [index, [firstName, lastName, phone, email, login, [plate, province, make, model, year, color, km], [service, complaint, daysAgo]]] of SIAM.entries()) {
+      const customer = await prisma.customer.create({
+        data: {
+          shopId: SECOND_SHOP_ID,
+          firstName,
+          lastName,
+          phone: normalizeThaiPhone(phone)!,
+          email,
+          userId: login ? (jordanLogin?.id ?? null) : null,
+          notes: `${DEMO_TAG} Siam Garage demo customer`,
+          createdAt: shopTime(60 - index * 5, "10:00"),
+        },
+      });
+      const vehicle = await prisma.vehicle.create({
+        data: {
+          shopId: SECOND_SHOP_ID,
+          customerId: customer.id,
+          vin: `SIAM${String(index + 1).padStart(13, "0")}`,
+          plate,
+          plateNormalized: normalizePlate(plate),
+          province,
+          make,
+          model,
+          year,
+          color,
+          mileage: km,
+          createdAt: customer.createdAt,
+        },
+      });
+      const price = PRICE_LIST.find((entry) => entry.name === service)!.price;
+      const totals = calculateTotals([price], []);
+      const checkedInAt = shopTime(daysAgo, "09:30");
+      const completedAt = hoursLater(checkedInAt, 3);
+      await prisma.workOrder.create({
+        data: {
+          shopId: SECOND_SHOP_ID,
+          number: await nextNumber(prisma, SECOND_SHOP_ID, "workOrder"),
+          vehicleId: vehicle.id,
+          mileageIn: km,
+          complaint,
+          diagnosis: "Checked on arrival",
+          workPerformed: service,
+          status: "COMPLETED",
+          createdById: siamAdmin.id,
+          createdAt: checkedInAt,
+          completedAt,
+          statusChanges: {
+            create: [
+              { toStatus: "CHECKED_IN", changedById: siamAdmin.id, createdAt: checkedInAt },
+              { fromStatus: "CHECKED_IN", toStatus: "IN_PROGRESS", changedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 1) },
+              { fromStatus: "IN_PROGRESS", toStatus: "QUALITY_CHECK", changedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 2) },
+              { fromStatus: "QUALITY_CHECK", toStatus: "COMPLETED", changedById: siamAdmin.id, createdAt: completedAt },
+            ],
+          },
+          serviceItems: {
+            create: [{ description: service, laborCost: price, catalogItemId: siamPrices.get(service) ?? null, addedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 1) }],
+          },
+          invoice: {
+            create: {
+              shopId: SECOND_SHOP_ID,
+              number: await nextNumber(prisma, SECOND_SHOP_ID, "invoice"),
+              subtotal: new Prisma.Decimal(totals.subtotal),
+              vatAmount: new Prisma.Decimal(totals.vat),
+              total: new Prisma.Decimal(totals.total),
+              status: "PAID",
+              issuedAt: completedAt,
+              paidAt: completedAt,
+            },
+          },
+        },
+      });
+    }
+    return SIAM.length;
+  };
+  if (mainDone) return { skipped: false, workOrders: await seedSecondShop() };
+
   await upsertShop(prisma, MAIN_SHOP_ID);
   // Staff belong to shop #1; customers remember it as their last-used shop.
   const user = (email: string, firstName: string, lastName: string, role: Role) =>
@@ -417,95 +514,7 @@ export async function seedDemo(prisma: PrismaClient, now: Date = new Date()): Pr
   await book(1, futureSlot(3, "13:00"), "REQUESTED", "Strange noise when turning", true);
   await book(12, futureSlot(5, "11:00"), "CONFIRMED", "Battery check", false);
 
-  // ── A second, smaller shop (multi-shop): Siam Garage ─────────────────────────
-  // Its own admin and price list, three customers — Jordan's login is linked here too, so
-  // the customer shop switcher has two shops — and one finished, paid job each.
-  await upsertShop(prisma, SECOND_SHOP_ID, SECOND_SHOP);
-  const siamAdmin = await prisma.user.upsert({
-    where: { email: "admin@siamgarage.example" },
-    update: {},
-    create: { email: "admin@siamgarage.example", firstName: "Nok", lastName: "Siriwan", role: "ADMIN", passwordHash, shopId: SECOND_SHOP_ID },
-  });
-  const siamPrices = await upsertPriceList(prisma, SECOND_SHOP_ID);
-  const jordanLogin = await prisma.user.findUnique({ where: { email: "jordan.lee@example.com" }, select: { id: true } });
-  const SIAM: [first: string, last: string, phone: string, email: string | null, login: boolean, car: [string, string, string, string, number, string, number], job: [string, string, number]][] = [
-    ["Jordan", "Lee", "081-234-5678", "jordan.lee@example.com", true, ["2ขค 4455", "กรุงเทพมหานคร", "Honda", "Jazz", 2017, "Blue", 88200], ["Oil change", "Scheduled oil change", 30]],
-    ["Wipa", "Chaiyasit", "086-555-1212", "wipa.c@example.com", false, ["5กล 7788", "กรุงเทพมหานคร", "Mazda", "2", 2022, "Red", 21400], ["A/C check and clean", "Air-con smells musty", 18]],
-    ["Tanawat", "Boonmee", "083-444-9090", null, false, ["81-5566", "สมุทรปราการ", "Toyota", "Hilux Revo", 2019, "White", 132500], ["Front brake pads replacement", "Brakes squeal", 9]],
-  ];
-  for (const [index, [firstName, lastName, phone, email, login, [plate, province, make, model, year, color, km], [service, complaint, daysAgo]]] of SIAM.entries()) {
-    const customer = await prisma.customer.create({
-      data: {
-        shopId: SECOND_SHOP_ID,
-        firstName,
-        lastName,
-        phone: normalizeThaiPhone(phone)!,
-        email,
-        userId: login ? (jordanLogin?.id ?? null) : null,
-        notes: `${DEMO_TAG} Siam Garage demo customer`,
-        createdAt: shopTime(60 - index * 5, "10:00"),
-      },
-    });
-    const vehicle = await prisma.vehicle.create({
-      data: {
-        shopId: SECOND_SHOP_ID,
-        customerId: customer.id,
-        vin: `SIAM${String(index + 1).padStart(13, "0")}`,
-        plate,
-        plateNormalized: normalizePlate(plate),
-        province,
-        make,
-        model,
-        year,
-        color,
-        mileage: km,
-        createdAt: customer.createdAt,
-      },
-    });
-    const price = PRICE_LIST.find((entry) => entry.name === service)!.price;
-    const totals = calculateTotals([price], []);
-    const checkedInAt = shopTime(daysAgo, "09:30");
-    const completedAt = hoursLater(checkedInAt, 3);
-    await prisma.workOrder.create({
-      data: {
-        shopId: SECOND_SHOP_ID,
-        number: await nextNumber(prisma, SECOND_SHOP_ID, "workOrder"),
-        vehicleId: vehicle.id,
-        mileageIn: km,
-        complaint,
-        diagnosis: "Checked on arrival",
-        workPerformed: service,
-        status: "COMPLETED",
-        createdById: siamAdmin.id,
-        createdAt: checkedInAt,
-        completedAt,
-        statusChanges: {
-          create: [
-            { toStatus: "CHECKED_IN", changedById: siamAdmin.id, createdAt: checkedInAt },
-            { fromStatus: "CHECKED_IN", toStatus: "IN_PROGRESS", changedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 1) },
-            { fromStatus: "IN_PROGRESS", toStatus: "QUALITY_CHECK", changedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 2) },
-            { fromStatus: "QUALITY_CHECK", toStatus: "COMPLETED", changedById: siamAdmin.id, createdAt: completedAt },
-          ],
-        },
-        serviceItems: {
-          create: [{ description: service, laborCost: price, catalogItemId: siamPrices.get(service) ?? null, addedById: siamAdmin.id, createdAt: hoursLater(checkedInAt, 1) }],
-        },
-        invoice: {
-          create: {
-            shopId: SECOND_SHOP_ID,
-            number: await nextNumber(prisma, SECOND_SHOP_ID, "invoice"),
-            subtotal: new Prisma.Decimal(totals.subtotal),
-            vatAmount: new Prisma.Decimal(totals.vat),
-            total: new Prisma.Decimal(totals.total),
-            status: "PAID",
-            issuedAt: completedAt,
-            paidAt: completedAt,
-          },
-        },
-      },
-    });
-  }
-
+  if (!siamDone) await seedSecondShop();
   return { skipped: false, workOrders: count };
 }
 

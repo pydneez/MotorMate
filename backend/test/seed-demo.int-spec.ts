@@ -161,4 +161,23 @@ describe("demo seed", () => {
     const states = await prisma.serviceRecommendation.groupBy({ by: ["status"], _count: { _all: true } });
     expect(states.map((s) => s.status).sort()).toEqual(["DISMISSED", "OPEN", "REMINDED"]);
   });
+
+  it("adds the second shop to a database seeded before multi-shop", async () => {
+    // What the demo account looked like: the main shop's history, no Siam Garage.
+    const siam = { workOrder: { shopId: "shop_siam" } };
+    await prisma.invoice.deleteMany({ where: { shopId: "shop_siam" } });
+    await prisma.serviceItem.deleteMany({ where: siam });
+    await prisma.workOrderStatusChange.deleteMany({ where: siam });
+    await prisma.workOrder.deleteMany({ where: { shopId: "shop_siam" } });
+    await prisma.vehicle.deleteMany({ where: { shopId: "shop_siam" } });
+    await prisma.customer.deleteMany({ where: { shopId: "shop_siam" } });
+    await prisma.serviceCatalogItem.deleteMany({ where: { shopId: "shop_siam" } });
+    await prisma.user.deleteMany({ where: { shopId: "shop_siam" } });
+    await prisma.shop.delete({ where: { id: "shop_siam" } });
+
+    await expect(seedDemo(prisma, NOW)).resolves.toEqual({ skipped: false, workOrders: 3 });
+    expect(await prisma.workOrder.count({ where: { shopId: "shop_siam" } })).toBe(3);
+    expect(await prisma.workOrder.count({ where: { shopId: "shop_main" } })).toBe(50);
+    await expect(seedDemo(prisma, NOW)).resolves.toEqual({ skipped: true, workOrders: 0 });
+  });
 });
