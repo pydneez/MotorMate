@@ -169,6 +169,16 @@ bash infra/scripts/smoke.sh
 bash infra/scripts/failover-test.sh --all                     # HA check; note the numbers
 ```
 
+Measured on the demo account (Nov 7, 2026), polling a database-backed route every 2 s:
+
+| Test | AWS | What the site's users saw |
+|---|---|---|
+| RDS forced failover (us-east-1a ⇄ us-east-1b) | 50 s from "failover started" to "completed" | 2 of 47 requests failed, over ~9 s |
+| One backend + one frontend task stopped (same AZ) | ECS started replacements | all 36 requests succeeded |
+
+The new distribution served static files from CloudFront's cache from the second request
+on (`X-Cache: Hit from cloudfront`); the API is never cached.
+
 - Other teams use the same account: the scripts only touch `motormate-*` stacks, the
   `motormate` cluster and our own resources, so they can't affect anyone else's.
 - Only the person who ran `up.sh` can empty the invoice bucket (`nuke.sh`) — the bucket
