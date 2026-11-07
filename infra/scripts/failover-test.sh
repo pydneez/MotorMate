@@ -34,9 +34,13 @@ token="$(curl -s -X POST "$URL/v1/auth/login" -H 'Content-Type: application/json
 log="$(mktemp)"
 stop="$(mktemp -u)"
 poll() { # one line per request: <epoch seconds> <status>
+  local code
   while [ ! -e "$stop" ]; do
-    echo "$(date +%s) $(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$URL/v1/settings/shop" \
-      -H "Authorization: Bearer $token" || echo 000)" >> "$log"
+    # `|| true`, not `|| echo 000`: Git for Windows' curl prints the status and then fails
+    # writing to /dev/null (path conversion is off), which would append to the code.
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$URL/v1/settings/shop" \
+      -H "Authorization: Bearer $token" || true)"
+    echo "$(date +%s) ${code:-000}" >> "$log"
     sleep 2
   done
 }
@@ -65,16 +69,18 @@ if [ "$DB_TEST" = true ]; then
     --query 'DBInstances[0].[MultiAZ,AvailabilityZone,SecondaryAvailabilityZone]' --output text)"
   [ "$multi_az" = True ] || die "the database isn't Multi-AZ — deploy with up.sh --multi-az first"
   step "Database failover: primary in $az, standby in $standby"
+  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   aws rds reboot-db-instance --db-instance-identifier motormate --force-failover \
     --query 'DBInstance.DBInstanceStatus' --output text > /dev/null
   info "failover started; waiting for the database to be available again"
   sleep 20
   aws rds wait db-instance-available --db-instance-identifier motormate
   sleep 30 # keep polling a little after RDS reports it's back
-  now="$(aws rds describe-db-instances --db-instance-identifier motormate \
-    --query 'DBInstances[0].AvailabilityZone' --output text)"
-  info "primary is now in $now (was $az)"
-  report "Database failover"
+  # RDS's own record of the switch (the instance's AZ field can lag behind it).
+  aws rds describe-events --source-type db-instance --source-identifier motormate --start-time "$started" \
+    --query "Events[?contains(Message,'failover')].[Date,Message]" --output text \
+    | while IFS=$'\t' read -r when what; do info "RDS: ${when:11:8} ${what% }"; done
+  report "Database failover (as the site saw it)"
 fi
 
 if [ "$TASK_TEST" = true ]; then
