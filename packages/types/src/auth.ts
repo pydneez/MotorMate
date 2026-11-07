@@ -11,6 +11,9 @@ export const JwtClaimsSchema = z.object({
   sub: z.string(),
   email: z.string().email(),
   role: RoleSchema,
+  /** The shop this token works in: the staff member's shop, or the customer's current one;
+   *  null for the platform admin. */
+  shopId: z.string().nullable(),
   iat: z.number(),
   exp: z.number(),
 });
@@ -26,8 +29,9 @@ export type LoginInput = z.infer<typeof LoginSchema>;
 
 export const PASSWORD_MIN_LENGTH = 8;
 
-/** Body of POST /auth/register (customer self-registration). */
+/** Body of POST /auth/register (customer self-registration with their first shop). */
 export const RegisterSchema = z.object({
+  shopId: z.string().trim().min(1, "Choose your shop"),
   firstName: personName("First name"),
   lastName: personName("Last name"),
   email: z.string().trim().toLowerCase().email("Enter a valid email"),
@@ -55,7 +59,10 @@ export const AuthUserSchema = z.object({
   firstName: z.string(),
   lastName: z.string(),
   role: RoleSchema,
-  /** Set for CUSTOMER users linked to a Customer record. */
+  /** The shop the user works in now (see JwtClaims.shopId); null for the platform admin. */
+  shopId: z.string().nullable(),
+  shopName: z.string().nullable(),
+  /** CUSTOMER users: their Customer record in the current shop. */
   customerId: z.string().nullable(),
 });
 

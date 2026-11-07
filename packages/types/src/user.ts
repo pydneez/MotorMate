@@ -3,8 +3,8 @@ import { PASSWORD_MIN_LENGTH } from "./auth";
 import { ListQuerySchema, personName, QueryBooleanSchema } from "./common";
 import { RoleSchema } from "./role";
 
-/** Roles an admin can give through staff management; customers self-register. */
-export const StaffRoleSchema = RoleSchema.exclude(["CUSTOMER"]);
+/** Roles a shop admin can give through staff management; customers self-register. */
+export const StaffRoleSchema = RoleSchema.exclude(["CUSTOMER", "PLATFORM_ADMIN"]);
 
 export type StaffRole = z.infer<typeof StaffRoleSchema>;
 
