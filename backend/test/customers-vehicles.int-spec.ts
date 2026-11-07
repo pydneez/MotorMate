@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import * as bcrypt from "bcryptjs";
 import request = require("supertest");
 import { testDatabaseUrl } from "./integration-env";
+import { createTestShop, shopOf, TEST_SHOP_ID, testNumber } from "./test-shop";
 
 /**
  * End-to-end through the real HTTP stack (guards, validation pipe, controllers) and a real
@@ -50,10 +51,11 @@ beforeAll(async () => {
   await app.init();
   prisma = app.get(PrismaService);
   await resetDatabase();
+  await createTestShop(prisma);
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const user = (email: string, role: "ADMIN" | "ADVISOR" | "MECHANIC" | "CUSTOMER", firstName: string) =>
-    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash } });
+    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash, ...shopOf(role) } });
 
   await user("admin@test.example", "ADMIN", "Ada");
   await user("advisor@test.example", "ADVISOR", "Alex");
@@ -62,13 +64,13 @@ beforeAll(async () => {
   const maleeUser = await user("malee@test.example", "CUSTOMER", "Malee");
 
   const jordan = await prisma.customer.create({
-    data: { firstName: "Jordan", lastName: "Lee", phone: "+66812345678", email: "jordan@test.example", userId: jordanUser.id },
+    data: { shopId: TEST_SHOP_ID, firstName: "Jordan", lastName: "Lee", phone: "+66812345678", email: "jordan@test.example", userId: jordanUser.id },
   });
   const malee = await prisma.customer.create({
-    data: { firstName: "Malee", lastName: "Srisuk", phone: "+66898765432", email: "malee@test.example", userId: maleeUser.id },
+    data: { shopId: TEST_SHOP_ID, firstName: "Malee", lastName: "Srisuk", phone: "+66898765432", email: "malee@test.example", userId: maleeUser.id },
   });
   const civic = await prisma.vehicle.create({
-    data: {
+    data: { shopId: TEST_SHOP_ID,
       customerId: jordan.id,
       vin: "MRHFC1650KP000001",
       plate: "1กข 1234",
@@ -81,7 +83,7 @@ beforeAll(async () => {
     },
   });
   const almera = await prisma.vehicle.create({
-    data: {
+    data: { shopId: TEST_SHOP_ID,
       customerId: malee.id,
       vin: "MNTBB7A90K0000003",
       plate: "3กพ 9012",
@@ -333,7 +335,7 @@ describe("merging duplicate customers", () => {
       .expect(201);
     const advisorUser = await prisma.user.findUniqueOrThrow({ where: { email: "advisor@test.example" } });
     await prisma.workOrder.create({
-      data: {
+      data: { shopId: TEST_SHOP_ID, number: await testNumber(prisma, "workOrder"),
         vehicleId: vehicle.body.id,
         mileageIn: 90000,
         complaint: "Oil change",
@@ -346,7 +348,7 @@ describe("merging duplicate customers", () => {
     // Later the customer signs up with an email and the same phone → a separate record.
     const signup = await request(app.getHttpServer())
       .post("/auth/register")
-      .send({ firstName: "Somsak", lastName: "Online", email: "somsak@test.example", phone: "086-123-4567", password: PASSWORD })
+      .send({ firstName: "Somsak", lastName: "Online", email: "somsak@test.example", phone: "086-123-4567", password: PASSWORD, shopId: TEST_SHOP_ID })
       .expect(201);
     const portalId = signup.body.user.customerId;
     expect(portalId).not.toBe(walkIn.body.id);
@@ -394,7 +396,7 @@ describe("merging duplicate customers", () => {
 });
 
 describe("one online account per phone number", () => {
-  const signup = (body: object) => request(app.getHttpServer()).post("/auth/register").send(body);
+  const signup = (body: object) => request(app.getHttpServer()).post("/auth/register").send({ shopId: TEST_SHOP_ID, ...body });
 
   it("refuses a second sign-up with a phone that already has an online account, in any format", async () => {
     // Jordan already has an online account on +66812345678.

@@ -4,6 +4,7 @@ import * as bcrypt from "bcryptjs";
 import request = require("supertest");
 import { bangkokDateTime, bangkokParts } from "@motormate/types";
 import { testDatabaseUrl } from "./integration-env";
+import { createTestShop, shopOf, TEST_SHOP_ID } from "./test-shop";
 
 /**
  * Reminders over real HTTP + Postgres: the job endpoint's token, the staff page's API, the
@@ -51,20 +52,21 @@ beforeAll(async () => {
   await app.init();
   prisma = app.get(PrismaService);
   await resetDatabase();
+  await createTestShop(prisma);
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const user = (email: string, role: "ADVISOR" | "MECHANIC" | "CUSTOMER", firstName: string) =>
-    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash } });
+    prisma.user.create({ data: { email, role, firstName, lastName: "Test", passwordHash, ...shopOf(role) } });
   const advisor = await user("advisor@rem.test", "ADVISOR", "Alex");
   await user("sam@rem.test", "MECHANIC", "Sam");
   const jordanUser = await user("jordan@rem.test", "CUSTOMER", "Jordan");
 
   const jordan = await prisma.customer.create({
-    data: { firstName: "Jordan", lastName: "Lee", phone: "+66812345678", email: "jordan@rem.test", userId: jordanUser.id },
+    data: { shopId: TEST_SHOP_ID, firstName: "Jordan", lastName: "Lee", phone: "+66812345678", email: "jordan@rem.test", userId: jordanUser.id },
   });
   ids.jordan = jordan.id;
   const vehicle = await prisma.vehicle.create({
-    data: { customerId: jordan.id, vin: "MRHFC1650KP000201", plate: "1กข 1234", plateNormalized: "1กข1234", province: "กรุงเทพมหานคร", make: "Honda", model: "Civic", year: 2019, mileage: 42000 },
+    data: { shopId: TEST_SHOP_ID, customerId: jordan.id, vin: "MRHFC1650KP000201", plate: "1กข 1234", plateNormalized: "1กข1234", province: "กรุงเทพมหานคร", make: "Honda", model: "Civic", year: 2019, mileage: 42000 },
   });
   ids.vehicle = vehicle.id;
   const rec = (description: string, data: { dueMileage?: number; dueDate?: Date }) =>
@@ -165,7 +167,7 @@ describe("reminders", () => {
       data: {
         customerId: ids.jordan,
         vehicleId: (await prisma.vehicle.create({
-          data: { customerId: ids.jordan, vin: "MRHFC1650KP000202", plate: "2กข 2222", plateNormalized: "2กข2222", province: "กรุงเทพมหานคร", make: "Honda", model: "Jazz", year: 2020, mileage: 10000 },
+          data: { shopId: TEST_SHOP_ID, customerId: ids.jordan, vin: "MRHFC1650KP000202", plate: "2กข 2222", plateNormalized: "2กข2222", province: "กรุงเทพมหานคร", make: "Honda", model: "Jazz", year: 2020, mileage: 10000 },
         })).id,
         scheduledAt: bangkokDateTime(bangkokDay(5), "10:00")!,
         reason: "Oil change",
@@ -178,9 +180,9 @@ describe("reminders", () => {
   });
 
   it("records an appointment email it couldn't send, so staff know to call", async () => {
-    const walkIn = await prisma.customer.create({ data: { firstName: "Walk", lastName: "In", phone: "+66811111111" } });
+    const walkIn = await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: "Walk", lastName: "In", phone: "+66811111111" } });
     const vehicle = await prisma.vehicle.create({
-      data: { customerId: walkIn.id, vin: "MRHFC1650KP000203", plate: "3กข 3333", plateNormalized: "3กข3333", province: "กรุงเทพมหานคร", make: "Toyota", model: "Vios", year: 2018, mileage: 50000 },
+      data: { shopId: TEST_SHOP_ID, customerId: walkIn.id, vin: "MRHFC1650KP000203", plate: "3กข 3333", plateNormalized: "3กข3333", province: "กรุงเทพมหานคร", make: "Toyota", model: "Vios", year: 2018, mileage: 50000 },
     });
     const booked = await api(tokens.advisor)
       .post("/appointments", { vehicleId: vehicle.id, date: nextShopDay(), time: "10:00", reason: "Brake check" })

@@ -38,7 +38,8 @@ export function createPrismaMock() {
     serviceItem: { ...model(), createMany: jest.fn().mockResolvedValue({ count: 0 }) },
     serviceCatalogItem: model(),
     appointmentService: model(),
-    shopSettings: { ...model(), upsert: jest.fn() },
+    // The WO/INV counters (nextShopNumber): every call hands out number 1.
+    shop: { ...model(), upsert: jest.fn(), update: jest.fn().mockResolvedValue({ lastWorkOrderNumber: 1, lastInvoiceNumber: 1 }) },
     partUsed: model(),
     auditLog: { create: jest.fn().mockResolvedValue({}) },
     $transaction: jest.fn(),
@@ -58,6 +59,8 @@ export function makeAuthUser(overrides: Partial<AuthUser> = {}): AuthUser {
     firstName: "Somchai",
     lastName: "Jaidee",
     role: "ADMIN",
+    shopId: "shop-1",
+    shopName: "MotorMate Auto Service",
     customerId: null,
     ...overrides,
   };

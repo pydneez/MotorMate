@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import * as bcrypt from "bcryptjs";
 import request = require("supertest");
 import { testDatabaseUrl } from "./integration-env";
+import { createTestShop, shopOf, TEST_SHOP_ID } from "./test-shop";
 
 /** Inventory over real HTTP + Postgres: search, low-stock filter, roles, and concurrent stock changes. */
 
@@ -54,14 +55,17 @@ beforeAll(async () => {
   await app.init();
   prisma = app.get(PrismaService);
   await resetDatabase();
+  await createTestShop(prisma);
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const advisor = await prisma.user.create({
-    data: { email: "advisor@inv.test", role: "ADVISOR", firstName: "Alex", lastName: "Test", passwordHash },
+    data: { email: "advisor@inv.test", role: "ADVISOR", firstName: "Alex", lastName: "Test", passwordHash, ...shopOf("ADVISOR") },
   });
   advisorId = advisor.id;
-  await prisma.user.create({ data: { email: "mechanic@inv.test", role: "MECHANIC", firstName: "Sam", lastName: "Test", passwordHash } });
-  await prisma.user.create({ data: { email: "customer@inv.test", role: "CUSTOMER", firstName: "Jo", lastName: "Test", passwordHash } });
+  await prisma.user.create({ data: { email: "mechanic@inv.test", role: "MECHANIC", firstName: "Sam", lastName: "Test", passwordHash, ...shopOf("MECHANIC") } });
+  const customerUser = await prisma.user.create({ data: { email: "customer@inv.test", role: "CUSTOMER", firstName: "Jo", lastName: "Test", passwordHash } });
+  // A customer signs in through their Customer record in a shop.
+  await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: "Jo", lastName: "Test", phone: "+66810000098", userId: customerUser.id } });
 
   for (const [key, email] of [["advisor", "advisor@inv.test"], ["mechanic", "mechanic@inv.test"], ["customer", "customer@inv.test"]] as const) {
     const res = await request(app.getHttpServer()).post("/auth/login").send({ email, password: PASSWORD }).expect(200);

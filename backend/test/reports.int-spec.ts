@@ -3,6 +3,7 @@ import { Test } from "@nestjs/testing";
 import * as bcrypt from "bcryptjs";
 import request = require("supertest");
 import { testDatabaseUrl } from "./integration-env";
+import { createTestShop, shopOf, TEST_SHOP_ID, testNumber } from "./test-shop";
 
 /** Reports over real HTTP + Postgres: exact totals for a Bangkok month, repeat customers, CSV, roles. */
 
@@ -34,21 +35,26 @@ beforeAll(async () => {
   await app.init();
   prisma = app.get(PrismaService);
   await resetDatabase();
+  await createTestShop(prisma);
 
   const passwordHash = await bcrypt.hash(PASSWORD, 4);
   const users = {} as Record<keyof typeof tokens, { id: string }>;
   for (const [key, role] of [["admin", "ADMIN"], ["advisor", "ADVISOR"], ["mechanic", "MECHANIC"], ["customer", "CUSTOMER"]] as const) {
     users[key] = await prisma.user.create({
-      data: { email: `${key}@reports.test`, role, firstName: key === "mechanic" ? "Sam" : "Test", lastName: "Reports", passwordHash },
+      data: { email: `${key}@reports.test`, role, firstName: key === "mechanic" ? "Sam" : "Test", lastName: "Reports", passwordHash, ...shopOf(role) },
     });
+    // A customer signs in through their Customer record in a shop.
+    if (role === "CUSTOMER") {
+      await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: "Test", lastName: "Reports", phone: "+66810000099", userId: users[key].id } });
+    }
     const res = await request(app.getHttpServer()).post("/auth/login").send({ email: `${key}@reports.test`, password: PASSWORD }).expect(200);
     tokens[key] = res.body.accessToken;
   }
 
   const vehicleFor = async (name: string, phone: string, vin: string) => {
-    const customer = await prisma.customer.create({ data: { firstName: name, lastName: "Reports", phone } });
+    const customer = await prisma.customer.create({ data: { shopId: TEST_SHOP_ID, firstName: name, lastName: "Reports", phone } });
     return prisma.vehicle.create({
-      data: { customerId: customer.id, vin, plate: "1กข 1234", plateNormalized: "1กข1234", province: "กรุงเทพมหานคร", make: "Honda", model: "City", year: 2020, mileage: 50000 },
+      data: { shopId: TEST_SHOP_ID, customerId: customer.id, vin, plate: "1กข 1234", plateNormalized: "1กข1234", province: "กรุงเทพมหานคร", make: "Honda", model: "City", year: 2020, mileage: 50000 },
     });
   };
   const returning = await vehicleFor("Ann", "+66810000001", "VINREPORTS0000001");
@@ -58,12 +64,12 @@ beforeAll(async () => {
   const job = async (vehicleId: string, at: string, subtotal: number, status: "PAID" | "UNPAID", mechanicId?: string) => {
     const done = new Date(at);
     const workOrder = await prisma.workOrder.create({
-      data: { vehicleId, mileageIn: 50000, complaint: "Service", status: "COMPLETED", completedAt: done, createdById: users.admin.id, mechanicId, createdAt: done },
+      data: { shopId: TEST_SHOP_ID, number: await testNumber(prisma, "workOrder"), vehicleId, mileageIn: 50000, complaint: "Service", status: "COMPLETED", completedAt: done, createdById: users.admin.id, mechanicId, createdAt: done },
     });
     await prisma.serviceItem.create({ data: { workOrderId: workOrder.id, description: "Labour", laborCost: subtotal } });
     const vat = Math.round(subtotal * 7) / 100;
     await prisma.invoice.create({
-      data: { workOrderId: workOrder.id, subtotal, vatAmount: vat, total: subtotal + vat, status, issuedAt: done, paidAt: status === "PAID" ? done : null },
+      data: { shopId: TEST_SHOP_ID, number: await testNumber(prisma, "invoice"), workOrderId: workOrder.id, subtotal, vatAmount: vat, total: subtotal + vat, status, issuedAt: done, paidAt: status === "PAID" ? done : null },
     });
   };
   await job(returning.id, "2026-09-20T03:00:00Z", 100, "PAID"); // September — outside, but makes Ann a returning customer
@@ -131,7 +137,7 @@ describe("reports", () => {
   it("counts price-list services by service, custom lines together, and has no turnover without stock", async () => {
     // A list service on another October job, renamed since; 0 so the totals above don't move.
     const job = await prisma.workOrder.findFirstOrThrow({ where: { number: 3 } });
-    const service = await prisma.serviceCatalogItem.create({ data: { name: "Oil change", category: "Maintenance", price: 0 } });
+    const service = await prisma.serviceCatalogItem.create({ data: { shopId: TEST_SHOP_ID, name: "Oil change", category: "Maintenance", price: 0 } });
     await prisma.serviceItem.create({ data: { workOrderId: job.id, description: "Oil change", laborCost: 0, catalogItemId: service.id } });
     await prisma.serviceCatalogItem.update({ where: { id: service.id }, data: { name: "Oil & filter change" } });
 
