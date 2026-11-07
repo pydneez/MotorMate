@@ -22,9 +22,14 @@ Parameters:
   MigrateImage:
     Type: String
     Description: full ECR URI of the migrate image (backend/Dockerfile --target migrate)
-  LabRoleArn:
+  Mode:
     Type: String
-    Description: Learner Lab's pre-made LabRole (no other roles can be created)
+    AllowedValues: [learner-lab, full]
+    Default: learner-lab
+    Description: full mode keeps DATABASE_URL in Secrets Manager (see app.yml)
+
+Conditions:
+  Full: !Equals [!Ref Mode, full]
 
 Resources:
   DbSubnetGroup:
@@ -58,8 +63,22 @@ Resources:
       DeletionProtection: false
       AutoMinorVersionUpgrade: true
 
+  # Full mode: the migration task's DATABASE_URL. The app stack has its own secret, but it
+  # doesn't exist yet when the first migration runs. Named after this stack's id, because a
+  # deleted secret keeps its name for 7 days.
+  DbSecret:
+    Type: AWS::SecretsManager::Secret
+    Condition: Full
+    Properties:
+      Name: !Sub
+        - motormate/db-${StackUuid}
+        - StackUuid: !Select [2, !Split ["/", !Ref AWS::StackId]]
+      Description: MotorMate DATABASE_URL for the migration task
+      SecretString: !Sub '{"DATABASE_URL":"postgresql://motormate:${DbPassword}@${Database.Endpoint.Address}:5432/motormate?schema=public"}'
+
   # `prisma migrate deploy` as a one-off task (infra/scripts/migrate.sh), run before each
-  # rollout so new API containers never start against an old schema.
+  # rollout so new API containers never start against an old schema. Roles from
+  # motormate-base (LabRole in Learner Lab).
   MigrateTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -68,15 +87,21 @@ Resources:
       NetworkMode: awsvpc
       Cpu: "256"
       Memory: "512"
-      ExecutionRoleArn: !Ref LabRoleArn
-      TaskRoleArn: !Ref LabRoleArn
+      ExecutionRoleArn: !ImportValue motormate-ExecutionRoleArn
+      TaskRoleArn: !ImportValue motormate-NoPermissionsTaskRoleArn
       ContainerDefinitions:
         - Name: migrate
           Image: !Ref MigrateImage
           Essential: true
-          Environment:
-            - Name: DATABASE_URL
-              Value: !Sub "postgresql://motormate:${DbPassword}@${Database.Endpoint.Address}:5432/motormate?schema=public"
+          Environment: !If
+            - Full
+            - !Ref AWS::NoValue
+            - - Name: DATABASE_URL
+                Value: !Sub "postgresql://motormate:${DbPassword}@${Database.Endpoint.Address}:5432/motormate?schema=public"
+          Secrets: !If
+            - Full
+            - - { Name: DATABASE_URL, ValueFrom: !Sub "${DbSecret}:DATABASE_URL::" }
+            - !Ref AWS::NoValue
           LogConfiguration:
             LogDriver: awslogs
             Options:

@@ -48,6 +48,11 @@ load_secrets() {
     echo "JOB_TOKEN=$(openssl rand -hex 32)" >> "$file"
     info "added JOB_TOKEN to infra/.secrets/$ACCOUNT_ID.env"
   fi
+  # Step 14: the header value CloudFront adds and the load balancer requires (full mode).
+  if ! grep -q '^ORIGIN_SECRET=' "$file"; then
+    echo "ORIGIN_SECRET=$(openssl rand -hex 32)" >> "$file"
+    info "added ORIGIN_SECRET to infra/.secrets/$ACCOUNT_ID.env"
+  fi
   # shellcheck disable=SC1090
   source "$file"
 }
@@ -55,6 +60,36 @@ load_secrets() {
 stack_status() {
   aws cloudformation describe-stacks --stack-name "$1" --query 'Stacks[0].StackStatus' \
     --output text 2>/dev/null || echo "NONE"
+}
+
+# Learner Lab sessions are the "voclabs" role; anything else (e.g. the course's demo
+# account, an IAM user) can create roles and use CloudFront, so it gets "full".
+detect_mode() {
+  case "$(aws sts get-caller-identity --query Arn --output text)" in
+    *:assumed-role/voclabs/*) echo learner-lab ;;
+    *) echo full ;;
+  esac
+}
+
+# The caller as IAM sees it in a bucket policy: a user's ARN, or for an assumed-role session
+# the role's ARN (arn:aws:sts::…:assumed-role/<role>/<session> → arn:aws:iam::…:role/<role>).
+deployer_arn() {
+  local arn
+  arn="$(aws sts get-caller-identity --query Arn --output text)"
+  case "$arn" in
+    arn:aws:sts::*:assumed-role/*)
+      local role="${arn#*:assumed-role/}"
+      echo "arn:aws:iam::$ACCOUNT_ID:role/${role%%/*}" ;;
+    *) echo "$arn" ;;
+  esac
+}
+
+# stack_param <stack> <parameter> — a deployed stack's current parameter value, or empty
+# (also when the stack doesn't exist: `|| true`, or pipefail + set -e would end the script).
+stack_param() {
+  { aws cloudformation describe-stacks --stack-name "$1" \
+      --query "Stacks[0].Parameters[?ParameterKey=='$2'].ParameterValue" --output text 2>/dev/null || true; } \
+    | sed 's/^None$//'
 }
 
 stack_output() {
@@ -68,8 +103,9 @@ deploy_stack() {
   local args=()
   wait_until_settled "$stack"
   [ $# -gt 0 ] && args=(--parameter-overrides "$@")
+  # CAPABILITY_IAM: the base stack creates our own roles in full mode.
   (cd "$REPO_ROOT" && aws cloudformation deploy --stack-name "$stack" \
-    --template-file "$CFN_DIR/$template" --no-fail-on-empty-changeset "${args[@]}") \
+    --template-file "$CFN_DIR/$template" --no-fail-on-empty-changeset --capabilities CAPABILITY_IAM "${args[@]}") \
     || { show_stack_errors "$stack"; die "deploying $stack failed"; }
 }
 

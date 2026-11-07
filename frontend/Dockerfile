@@ -10,8 +10,19 @@
 #   NEXTAUTH_SECRET   encrypts NextAuth's session cookie
 #   API_INTERNAL_URL  how the Next.js server reaches the backend, e.g. http://<load balancer>/v1
 
+# ── Slim runtime base: Alpine + the node binary only ────────────────────────────────
+# node:22-alpine also carries npm, yarn and corepack (~25 MB) that nothing uses at run
+# time; deleting them in a later layer wouldn't shrink the image, so start from bare
+# Alpine and copy in just the binary. Both tags pin Alpine 3.24 so the binary's musl and
+# libstdc++ match. The frontend's own files are only ~30 MB; the base is the rest.
+FROM node:22-alpine3.24 AS node
+FROM alpine:3.24 AS slim-node
+RUN apk add --no-cache libstdc++ \
+ && addgroup -g 1000 node && adduser -u 1000 -G node -s /bin/sh -D node
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+
 # ── 1. Build: install the workspace, compile types, build the standalone server ──
-FROM node:22-alpine AS build
+FROM node:22-alpine3.24 AS build
 # Next.js's recommended compatibility layer for its native SWC compiler on Alpine (build only).
 RUN apk add --no-cache libc6-compat
 RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
@@ -32,7 +43,7 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @motormate/types build && pnpm --filter frontend build
 
 # ── 2. Runtime: only the standalone server and static assets, non-root user ──
-FROM node:22-alpine AS runtime
+FROM slim-node AS runtime
 ENV NODE_ENV=production PORT=3000 HOSTNAME=0.0.0.0 NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 

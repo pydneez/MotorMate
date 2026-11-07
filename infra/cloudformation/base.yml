@@ -7,6 +7,23 @@ Description: >-
 # Public subnets hold the load balancer and the ECS tasks (with public IPs, so they can
 # pull from ECR without a NAT Gateway, ~$32/month). Isolated subnets have no internet
 # route at all and hold only the database.
+#
+# Mode (set by up.sh): "learner-lab" uses the pre-made LabRole for everything (Learner Lab
+# can't create roles); "full" creates one least-privilege role per job instead. Either way
+# the role ARNs are exported, so the db and app stacks don't need to know the mode.
+
+Parameters:
+  Mode:
+    Type: String
+    AllowedValues: [learner-lab, full]
+    Default: learner-lab
+  DeployerArn:
+    Type: String
+    Default: ""
+    Description: full mode - the IAM user/role running the scripts (may empty the invoice bucket)
+
+Conditions:
+  Full: !Equals [!Ref Mode, full]
 
 Resources:
   Vpc:
@@ -109,22 +126,24 @@ Resources:
       RouteTableId: !Ref DbRouteTable
 
   # ── Security groups: internet → ALB → app containers → database ─────────────
+  # Its inbound rule lives in the app stack, which knows the front door: anywhere for API
+  # Gateway (no fixed IPs), only CloudFront's addresses in full mode.
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: MotorMate load balancer - HTTP from anywhere (API Gateway has no fixed IPs)
+      GroupDescription: MotorMate load balancer - inbound rule set by the app stack
       VpcId: !Ref Vpc
-      SecurityGroupIngress:
-        - { IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0 }
       Tags: [{ Key: Name, Value: motormate-alb }]
 
   BackendSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: MotorMate backend tasks - only from the load balancer
+      GroupDescription: MotorMate backend tasks - from the load balancer and the frontend
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref AlbSecurityGroup }
+        # The frontend server's own API calls over private DNS (full mode, see app stack).
+        - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref FrontendSecurityGroup }
       Tags: [{ Key: Name, Value: motormate-backend }]
 
   FrontendSecurityGroup:
@@ -207,9 +226,9 @@ Resources:
       OwnershipControls:
         Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
 
-  # HTTPS only, and only two principals at all: LabRole (the app's containers — presigned
-  # links are signed with it too) and voclabs (you, so the scripts can empty and delete it).
-  # A dedicated least-privilege task role is the production plan (Learner Lab can't create one).
+  # HTTPS only, and only two principals at all: the backend's role (presigned links are
+  # signed with it too) and whoever runs the scripts, so they can empty and delete it —
+  # LabRole + voclabs in Learner Lab, the backend task role + the deployer in full mode.
   InvoiceBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -230,9 +249,11 @@ Resources:
             Resource: [!GetAtt InvoiceBucket.Arn, !Sub "${InvoiceBucket.Arn}/*"]
             Condition:
               ArnNotLike:
-                "aws:PrincipalArn":
-                  - !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
-                  - !Sub arn:aws:iam::${AWS::AccountId}:role/voclabs
+                "aws:PrincipalArn": !If
+                  - Full
+                  - [!GetAtt BackendTaskRole.Arn, !Ref DeployerArn]
+                  - - !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
+                    - !Sub arn:aws:iam::${AWS::AccountId}:role/voclabs
 
   # ── Customer emails ──────────────────────────────────────────────────────────
   # SES is blocked in Learner Lab, so emails go through SNS: each customer with an email gets
@@ -243,6 +264,115 @@ Resources:
     Properties:
       TopicName: motormate-notifications
       DisplayName: MotorMate
+
+  # ── Roles (full mode; Learner Lab uses LabRole for all of these) ───────────────
+  # Pulls images, writes logs and reads our secrets (motormate/*) when a task starts.
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Condition: Full
+    Properties:
+      Description: MotorMate ECS execution role - images, logs, motormate/* secrets
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: read-motormate-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:motormate/*
+
+  # What the API itself calls: invoice PDFs in our bucket and customer emails on our topic.
+  BackendTaskRole:
+    Type: AWS::IAM::Role
+    Condition: Full
+    Properties:
+      Description: MotorMate API - invoice PDFs and customer emails only
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }
+      Policies:
+        - PolicyName: invoices-and-emails
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub ${InvoiceBucket.Arn}/invoices/*
+              # So a missing PDF is a 404 (regenerate it), not a 403.
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt InvoiceBucket.Arn
+                Condition: { StringLike: { "s3:prefix": "invoices/*" } }
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                  - sns:Subscribe
+                  - sns:Unsubscribe
+                  - sns:ListSubscriptionsByTopic
+                  - sns:GetSubscriptionAttributes
+                  - sns:SetSubscriptionAttributes
+                Resource: !Ref NotifyTopic
+
+  # The frontend and the migration task call no AWS APIs at all.
+  NoPermissionsTaskRole:
+    Type: AWS::IAM::Role
+    Condition: Full
+    Properties:
+      Description: MotorMate tasks that call no AWS APIs (frontend, migrations)
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: sts:AssumeRole }
+
+  # The daily-jobs Lambda: its own logs and the job-token secret.
+  JobsFunctionRole:
+    Type: AWS::IAM::Role
+    Condition: Full
+    Properties:
+      Description: MotorMate daily-jobs Lambda - logs and the job token
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: sts:AssumeRole }
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: read-motormate-secrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:motormate/*
+
+  # EventBridge Scheduler may start that one function, nothing else.
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Condition: Full
+    Properties:
+      Description: MotorMate schedules - invoke the daily-jobs Lambda
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition: { StringEquals: { "aws:SourceAccount": !Ref AWS::AccountId } }
+      Policies:
+        - PolicyName: invoke-daily-jobs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:motormate-daily-jobs
 
   # The daily-jobs Lambda's logs (Lambda writes to /aws/lambda/<function name>).
   JobsLogGroup:
@@ -294,6 +424,22 @@ Outputs:
   NotifyTopic:
     Value: !Ref NotifyTopic
     Export: { Name: motormate-NotifyTopic }
+  # Roles: our own in full mode, LabRole in Learner Lab.
+  ExecutionRoleArn:
+    Value: !If [Full, !GetAtt ExecutionRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Export: { Name: motormate-ExecutionRoleArn }
+  BackendTaskRoleArn:
+    Value: !If [Full, !GetAtt BackendTaskRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Export: { Name: motormate-BackendTaskRoleArn }
+  NoPermissionsTaskRoleArn:
+    Value: !If [Full, !GetAtt NoPermissionsTaskRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Export: { Name: motormate-NoPermissionsTaskRoleArn }
+  JobsFunctionRoleArn:
+    Value: !If [Full, !GetAtt JobsFunctionRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Export: { Name: motormate-JobsFunctionRoleArn }
+  SchedulerRoleArn:
+    Value: !If [Full, !GetAtt SchedulerRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Export: { Name: motormate-SchedulerRoleArn }
   BackendRepositoryUri:
     Value: !GetAtt BackendRepository.RepositoryUri
   FrontendRepositoryUri:

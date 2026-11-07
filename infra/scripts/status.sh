@@ -17,9 +17,12 @@ if [ "$(stack_status "$APP_STACK")" != "NONE" ]; then
   aws ecs describe-services --cluster motormate --services backend frontend \
     --query 'services[].[serviceName,runningCount,desiredCount]' --output text 2>/dev/null \
     | while read -r name running desired; do info "$name: $running/$desired tasks"; done
-  info "site: $(stack_output "$APP_STACK" SiteUrl)"
-  # 3 tasks (~\$0.012 + \$0.005 public IP each), load balancer (~\$0.03 incl. its 2 IPs)
-  cost=$(awk "BEGIN { print $cost + 0.08 }")
+  info "site: $(stack_output "$APP_STACK" SiteUrl) ($(stack_output "$APP_STACK" Mode) mode)"
+  # Each task ~\$0.012 + \$0.005 for its public IP; the load balancer ~\$0.03 incl. its 2 IPs.
+  # CloudFront and Secrets Manager are cents per day at this traffic.
+  tasks="$(aws ecs describe-services --cluster motormate --services backend frontend \
+    --query 'sum(services[].desiredCount)' --output text 2>/dev/null || echo 3)"
+  cost=$(awk "BEGIN { print $cost + 0.03 + $tasks * 0.017 }")
 fi
 db="$(aws rds describe-db-instances --db-instance-identifier motormate \
   --query 'DBInstances[0].[DBInstanceStatus,MultiAZ]' --output text 2>/dev/null || true)"

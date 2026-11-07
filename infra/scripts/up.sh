@@ -1,38 +1,62 @@
 #!/usr/bin/env bash
-# Brings the whole MotorMate environment up in your Learner Lab account (or updates it):
-# base → database + images (in parallel) → migrations → app → seed. Safe to re-run;
-# ~15 minutes from nothing, mostly waiting for RDS.
+# Brings the whole MotorMate environment up (or updates it): base → database + images (in
+# parallel) → migrations → app → seed. Safe to re-run; ~15 minutes from nothing, mostly
+# waiting for RDS (and CloudFront in full mode).
 #
-#   bash infra/scripts/up.sh             # dev: single-AZ database
-#   bash infra/scripts/up.sh --multi-az  # demo account: primary + standby database
+#   bash infra/scripts/up.sh                                   # dev (Learner Lab): single-AZ, 1 frontend
+#   AWS_PROFILE=motormate-demo bash infra/scripts/up.sh --multi-az --frontend-count 2   # demo account
 #
-# Afterwards: smoke.sh to check it, status.sh to see what's running, and down.sh before
-# you stop working — Learner Lab keeps billing after the session ends.
+# Mode: "learner-lab" (API Gateway, LabRole, secrets as env vars) when the caller is a
+# Learner Lab session, otherwise "full" (CloudFront, our own roles, Secrets Manager).
+# --lab / --full override it. Options you leave out keep their current deployed value, so a
+# plain re-run never switches Multi-AZ off or scales the frontend back down.
+#
+# Afterwards: smoke.sh to check it, status.sh to see what's running, and (dev) down.sh
+# before you stop working — Learner Lab keeps billing after the session ends.
 
 source "$(dirname "$0")/lib.sh"
 
-MULTI_AZ=false
-for arg in "$@"; do
-  case "$arg" in
+MODE="" MULTI_AZ="" FRONTEND_COUNT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --multi-az) MULTI_AZ=true ;;
-    *) die "unknown option: $arg" ;;
+    --single-az) MULTI_AZ=false ;;
+    --frontend-count)
+      FRONTEND_COUNT="${2:-}"; shift
+      [[ "$FRONTEND_COUNT" =~ ^[1-9]$ ]] || die "--frontend-count needs a number from 1 to 9" ;;
+    --lab) MODE=learner-lab ;;
+    --full) MODE=full ;;
+    *) die "unknown option: $1" ;;
   esac
+  shift
 done
 
 require_aws
 load_secrets
-step "Account $ACCOUNT_ID, region $REGION"
+MODE="${MODE:-$(detect_mode)}"
+MULTI_AZ="${MULTI_AZ:-$(stack_param "$DB_STACK" MultiAZ)}"; MULTI_AZ="${MULTI_AZ:-false}"
+FRONTEND_COUNT="${FRONTEND_COUNT:-$(stack_param "$APP_STACK" FrontendCount)}"; FRONTEND_COUNT="${FRONTEND_COUNT:-1}"
+step "Account $ACCOUNT_ID, region $REGION — $MODE mode, Multi-AZ database: $MULTI_AZ, frontend tasks: $FRONTEND_COUNT"
 export TAG="${TAG:-$(image_tag)}"
 REGISTRY="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
-LAB_ROLE_ARN="arn:aws:iam::$ACCOUNT_ID:role/LabRole"
 
-step "1/5 Base stack (network, security groups, ECR, ECS cluster, logs)"
-deploy_stack "$BASE_STACK" base.yml
+PREFIX_LIST=""
+if [ "$MODE" = full ]; then
+  # AWS's list of the addresses CloudFront uses to reach origins; the load balancer only
+  # accepts these.
+  PREFIX_LIST="$(aws ec2 describe-managed-prefix-lists \
+    --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing \
+    --query 'PrefixLists[0].PrefixListId' --output text)"
+  [[ "$PREFIX_LIST" == pl-* ]] || die "couldn't find CloudFront's origin-facing prefix list in $REGION"
+fi
+
+step "1/5 Base stack (network, security groups, roles, ECR, ECS cluster, logs)"
+deploy_stack "$BASE_STACK" base.yml "Mode=$MODE" "DeployerArn=$( [ "$MODE" = full ] && deployer_arn )"
 
 step "2/5 Database stack and images (in parallel)"
 db_log="$SECRETS_DIR/db-deploy.log"
 ( deploy_stack "$DB_STACK" db.yml "DbPassword=$DB_PASSWORD" "MultiAZ=$MULTI_AZ" \
-    "MigrateImage=$REGISTRY/motormate-migrate:$TAG" "LabRoleArn=$LAB_ROLE_ARN" ) > "$db_log" 2>&1 &
+    "MigrateImage=$REGISTRY/motormate-migrate:$TAG" "Mode=$MODE" ) > "$db_log" 2>&1 &
 db_pid=$!
 info "database deploying in the background (log: infra/.secrets/db-deploy.log)"
 bash "$(dirname "$0")/build-push.sh"
@@ -42,12 +66,19 @@ wait "$db_pid" || { cat "$db_log"; die "database stack failed"; }
 step "3/5 Database migrations"
 bash "$(dirname "$0")/migrate.sh"
 
-step "4/5 App stack (load balancer, ECS services, API Gateway)"
+if [ "$MODE" = full ]; then
+  step "4/5 App stack (load balancer, ECS services, CloudFront — a new distribution takes ~5–10 minutes)"
+else
+  step "4/5 App stack (load balancer, ECS services, API Gateway)"
+fi
 deploy_stack "$APP_STACK" app.yml \
+  "Mode=$MODE" \
   "BackendImage=$REGISTRY/motormate-backend:$TAG" \
   "FrontendImage=$REGISTRY/motormate-frontend:$TAG" \
-  "LabRoleArn=$LAB_ROLE_ARN" \
-  "DbPassword=$DB_PASSWORD" "JwtSecret=$JWT_SECRET" "NextAuthSecret=$NEXTAUTH_SECRET" "JobToken=$JOB_TOKEN"
+  "FrontendCount=$FRONTEND_COUNT" \
+  "CloudFrontPrefixListId=$PREFIX_LIST" \
+  "DbPassword=$DB_PASSWORD" "JwtSecret=$JWT_SECRET" "NextAuthSecret=$NEXTAUTH_SECRET" "JobToken=$JOB_TOKEN" \
+  "OriginSecret=$ORIGIN_SECRET"
 info "waiting for the containers to pass health checks…"
 aws ecs wait services-stable --cluster motormate --services backend frontend
 
@@ -57,4 +88,8 @@ bash "$(dirname "$0")/seed.sh"
 step "Up and running"
 info "Site:  $(stack_output "$APP_STACK" SiteUrl)"
 info "Check: bash infra/scripts/smoke.sh"
-info "Stop:  bash infra/scripts/down.sh   (before you end the lab session)"
+if [ "$MODE" = full ]; then
+  info "HA:    bash infra/scripts/failover-test.sh   (with --multi-az)"
+else
+  info "Stop:  bash infra/scripts/down.sh   (before you end the lab session)"
+fi

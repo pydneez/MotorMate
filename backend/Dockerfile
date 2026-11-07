@@ -17,8 +17,19 @@
 #   DATABASE_SSL_CA  /app/rds-global-bundle.pem on AWS (RDS requires SSL); unset locally
 #   INVOICE_BUCKET   S3 bucket for invoice PDFs on AWS; unset locally (PDFs returned inline)
 
+# ── Slim runtime base: Alpine + the node binary only ────────────────────────────────
+# node:22-alpine also carries npm, yarn and corepack (~25 MB) that nothing uses at run
+# time; deleting them in a later layer wouldn't shrink the image, so start from bare
+# Alpine and copy in just the binary. Both tags pin Alpine 3.24 so the binary's musl and
+# libstdc++ match. Used by the API and the migrate image.
+FROM node:22-alpine3.24 AS node
+FROM alpine:3.24 AS slim-node
+RUN apk add --no-cache libstdc++ \
+ && addgroup -g 1000 node && adduser -u 1000 -G node -s /bin/sh -D node
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+
 # ── 1. Build: install the workspace, compile types + backend, make a prod-only bundle ──
-FROM node:22-alpine AS build
+FROM node:22-alpine3.24 AS build
 RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
 WORKDIR /repo
 
@@ -44,24 +55,45 @@ RUN pnpm --filter @motormate/types build \
 # - drop the Prisma CLI and TypeScript: optional peers of @prisma/client that pnpm links
 #   anyway, never loaded by the API (~200 MB with their dependencies);
 # - copy in the Prisma client generated above (generating needs the CLI);
-# - delete the query compilers for databases we don't use (~50 MB; PostgreSQL is kept).
+# - delete the query compilers for databases we don't use (~50 MB; PostgreSQL is kept),
+#   and the generic PostgreSQL ones too (~14 MB): the generated client in .prisma/client
+#   carries its own copy;
+# - delete source maps and pdfkit's browser bundle, which the API never loads.
 RUN pnpm --filter backend deploy --prod --legacy /prod/backend \
  && node backend/scripts/prune-optional-peers.cjs /prod/backend prisma typescript \
  && client_dir="$(ls -d /prod/backend/node_modules/.pnpm/@prisma+client@*/node_modules)" \
  && cp -r /repo/node_modules/.pnpm/@prisma+client@*/node_modules/.prisma "$client_dir/" \
+ && find "$client_dir/@prisma/client/runtime" -type f -name 'query_compiler_*' -delete \
  && find "$client_dir/@prisma/client/runtime" -type f \
       \( -name '*.sqlserver.*' -o -name '*.cockroachdb.*' -o -name '*.mysql.*' -o -name '*.sqlite.*' \) -delete \
+ && find /prod/backend/node_modules -type f -name '*.map' -delete \
+ && find /prod/backend/node_modules -type f -path '*/pdfkit/js/pdfkit.standalone.js' -delete \
  && node -p "require('/repo/backend/package.json').devDependencies.prisma" > /prod/prisma-version
 
 # ── 2. Migrate: just the Prisma CLI, the schema and the migrations ──────────────────
-FROM node:22-alpine AS migrate
-# Prisma's schema engine needs OpenSSL.
-RUN apk add --no-cache openssl
+# Installed with npm in a throwaway stage, then pruned (253 → 141 MB). The CLI requires
+# @prisma/studio-core and @prisma/dev at start-up, so those stay, but `migrate deploy`
+# never loads Studio's UI libraries (React, visx, elkjs) or its ESM build, the MySQL
+# driver, `prisma dev`'s embedded Postgres (PGlite), type declarations, source maps, or
+# the query compilers for other databases. Checked by applying every migration to an
+# empty database with the pruned CLI — re-check after upgrading Prisma.
+FROM node:22-alpine3.24 AS migrate-deps
 WORKDIR /app
 COPY --from=build /prod/prisma-version ./
 RUN npm init -y >/dev/null \
  && npm install --omit=dev --no-audit --no-fund "prisma@$(cat prisma-version)" dotenv \
- && npm cache clean --force
+ && cd node_modules \
+ && rm -rf react react-dom @visx elkjs mysql2 @electric-sql \
+ && find @prisma/studio-core/dist -type f -name '*.js' -delete \
+ && find . -type f \( -name '*.d.ts' -o -name '*.d.cts' -o -name '*.d.mts' -o -name '*.map' \) -delete \
+ && find prisma/build -type f -name 'query_compiler_*' ! -name '*postgresql*' -delete
+
+FROM slim-node AS migrate
+# Prisma's schema engine needs OpenSSL.
+RUN apk add --no-cache openssl
+WORKDIR /app
+COPY --from=migrate-deps /app/node_modules ./node_modules
+COPY --from=migrate-deps /app/package.json ./package.json
 COPY --from=build /repo/backend/prisma ./prisma
 COPY --from=build /repo/backend/prisma.config.ts ./prisma.config.ts
 ENV NO_COLOR=1 DOTENV_CONFIG_QUIET=true
@@ -69,7 +101,7 @@ USER node
 CMD ["node_modules/.bin/prisma", "migrate", "deploy"]
 
 # ── 3. Runtime (default): the API ─────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM slim-node AS runtime
 # NO_COLOR keeps CloudWatch logs free of terminal colour codes; dotenv has no .env to load here.
 ENV NODE_ENV=production PORT=8080 NO_COLOR=1 DOTENV_CONFIG_QUIET=true
 WORKDIR /app
