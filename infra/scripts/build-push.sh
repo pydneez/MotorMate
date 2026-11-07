@@ -16,6 +16,18 @@ require_aws
 TAG="${TAG:-$(image_tag)}"
 REGISTRY="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 
+# Log in with a private Docker config (gitignored, under infra/.secrets): Docker Desktop's
+# Windows credential store can't hold ECR's long token ("The stub received bad data").
+# - Docker only stores logins in the file when the file already lists a registry, hence
+#   the seeded empty entry; the token in it expires after 12 hours.
+# - docker.exe needs a Windows path (lib.sh turns Git Bash's path conversion off).
+# - The private config has no contexts, so pin the daemon the current context points at.
+export DOCKER_HOST="${DOCKER_HOST:-$(docker context inspect --format '{{.Endpoints.docker.Host}}')}"
+docker_config="$SECRETS_DIR/docker-config"
+mkdir -p "$docker_config"
+printf '{"auths":{"%s":{}}}\n' "$REGISTRY" > "$docker_config/config.json"
+export DOCKER_CONFIG="$(cygpath -w "$docker_config" 2>/dev/null || echo "$docker_config")"
+
 step "Logging in to ECR ($REGISTRY)"
 aws ecr get-login-password | docker login --username AWS --password-stdin "$REGISTRY" >/dev/null
 
