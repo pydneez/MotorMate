@@ -25,9 +25,16 @@ check "GET /v1 (API health)" 200 "$URL/v1"
 
 # Full mode: the site is behind CloudFront and the load balancer refuses everyone else.
 if [ "$(stack_output "$APP_STACK" Mode)" = full ]; then
+  # From outside CloudFront's address range the firewall drops the connection (000); from
+  # inside it, a request without the secret header gets 403. Either means locked.
   alb="$(stack_output "$APP_STACK" LoadBalancerUrl)"
-  check "load balancer directly, without CloudFront (locked)" 403 "$alb/v1"
-  served_by="$(curl -s -o /dev/null -D - --max-time 20 "$URL/login" | tr -d '\r' | sed -n 's/^[Xx]-[Cc]ache: //p')"
+  direct="$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$alb/v1" || true)"
+  case "$direct" in
+    000|403) info "✔ load balancer refuses direct requests ($([ "$direct" = 000 ] && echo "connection dropped" || echo 403))" ;;
+    *) info "✖ load balancer answered a direct request with $direct"; failed=1 ;;
+  esac
+  # `|| true`: under pipefail a slow first request would otherwise end the script here.
+  served_by="$(curl -s -o /dev/null -D - --max-time 30 "$URL/login" | tr -d '\r' | sed -n 's/^[Xx]-[Cc]ache: //p' || true)"
   case "$served_by" in
     *cloudfront*) info "✔ served through CloudFront ($served_by)" ;;
     *) info "✖ no CloudFront X-Cache header on /login"; failed=1 ;;
