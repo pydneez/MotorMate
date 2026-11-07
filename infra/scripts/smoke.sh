@@ -22,6 +22,17 @@ check() { # check <label> <expected status> <curl args...>
 }
 
 check "GET /v1 (API health)" 200 "$URL/v1"
+
+# Full mode: the site is behind CloudFront and the load balancer refuses everyone else.
+if [ "$(stack_output "$APP_STACK" Mode)" = full ]; then
+  alb="$(stack_output "$APP_STACK" LoadBalancerUrl)"
+  check "load balancer directly, without CloudFront (locked)" 403 "$alb/v1"
+  served_by="$(curl -s -o /dev/null -D - --max-time 20 "$URL/login" | tr -d '\r' | sed -n 's/^[Xx]-[Cc]ache: //p')"
+  case "$served_by" in
+    *cloudfront*) info "✔ served through CloudFront ($served_by)" ;;
+    *) info "✖ no CloudFront X-Cache header on /login"; failed=1 ;;
+  esac
+fi
 check "GET /login (frontend)" 200 "$URL/login"
 check "GET /api/auth/providers (NextAuth)" 200 "$URL/api/auth/providers"
 

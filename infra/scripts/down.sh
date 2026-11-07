@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nightly teardown: deletes everything that costs money while idle — the app stack (load
-# balancer, containers, API Gateway) and, unless --keep-db, the database. Keeps the base
-# stack (free) and the images in ECR, so the next up.sh is faster.
+# balancer, containers, API Gateway or CloudFront) and, unless --keep-db, the database.
+# Keeps the base stack (free) and the images in ECR, so the next up.sh is faster.
 #
 #   bash infra/scripts/down.sh            # dev account, end of a work session
 #   bash infra/scripts/down.sh --keep-db  # keep the database (e.g. demo data you entered)
@@ -19,7 +19,7 @@ done
 require_aws
 step "Account $ACCOUNT_ID, region $REGION"
 
-step "Deleting the app stack (load balancer, ECS services, API Gateway)"
+step "Deleting the app stack (load balancer, ECS services, front door — CloudFront takes ~10 minutes)"
 delete_stack "$APP_STACK"
 
 if [ "$KEEP_DB" = true ]; then
