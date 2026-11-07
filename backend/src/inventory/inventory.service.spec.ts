@@ -26,6 +26,8 @@ function itemRow(overrides: Record<string, unknown> = {}) {
 
 function setup() {
   const { prisma, service } = createPrismaMock();
+  // Lookups that are unique per shop are findFirst now; answer them like findUnique.
+  prisma.inventoryItem.findFirst.mockImplementation((args: unknown) => prisma.inventoryItem.findUnique(args));
   const stock = { change: jest.fn().mockResolvedValue(0) };
   const inventory = new InventoryService(service, stock as unknown as StockService);
   return { prisma, stock, inventory };

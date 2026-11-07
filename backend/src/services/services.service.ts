@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import { Prisma } from "@prisma/client";
 import type { AuthUser, CreateServiceSchema, ServiceCatalogEntry, ServiceListQuery, UpdateServiceSchema } from "@motormate/types";
 import type { z } from "zod";
+import { requireShop } from "../common/tenancy/shop-records";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -38,7 +39,7 @@ export class ServicesService {
   async create(actor: AuthUser, input: CreateServiceData): Promise<ServiceCatalogEntry> {
     await this.assertNameFree(input.name);
     const created = await this.prisma.$transaction(async (tx) => {
-      const row = await tx.serviceCatalogItem.create({ data: input });
+      const row = await tx.serviceCatalogItem.create({ data: { ...input, shopId: requireShop(actor) } });
       await writeAudit(tx, { actorId: actor.id, action: "service.created", entity: "ServiceCatalogItem", entityId: row.id, changes: { ...input } });
       return row;
     });

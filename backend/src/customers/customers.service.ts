@@ -16,6 +16,7 @@ import {
   type VisitSummary,
 } from "@motormate/types";
 import type { z } from "zod";
+import { requireShop } from "../common/tenancy/shop-records";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { phoneSearchFragment } from "../common/utils/phone-search";
@@ -119,7 +120,7 @@ export class CustomersService {
   async create(actor: AuthUser, input: CreateCustomerData): Promise<CustomerSummary> {
     if (input.email) await this.assertEmailFree(input.email);
     const created = await this.prisma.$transaction(async (tx) => {
-      const customer = await tx.customer.create({ data: input, include: summaryInclude });
+      const customer = await tx.customer.create({ data: { ...input, shopId: requireShop(actor) }, include: summaryInclude });
       await writeAudit(tx, { actorId: actor.id, action: "customer.created", entity: "Customer", entityId: customer.id });
       return toSummary(customer);
     });

@@ -239,7 +239,7 @@ describe("AppointmentsService", () => {
     // The tab's own status rule stays; the filter only narrows it.
     expect(upcoming.where.status).toEqual({ in: ["REQUESTED", "CONFIRMED"] });
     expect(upcoming.where.AND).toEqual([{ createdById: { notIn: ["advisor-1", "admin-1"] } }]);
-    expect(prisma.user.findMany).toHaveBeenCalledWith({ where: { role: { not: "CUSTOMER" } }, select: { id: true } });
+    expect(prisma.user.findMany).toHaveBeenCalledWith({ where: { shopId: "shop-1", role: { not: "CUSTOMER" } }, select: { id: true } });
   });
 
   it("checks the list filters (packages/types)", () => {

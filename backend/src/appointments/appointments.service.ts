@@ -23,6 +23,7 @@ import {
   type ShopDetails,
 } from "@motormate/types";
 import type { z } from "zod";
+import { requireShop } from "../common/tenancy/shop-records";
 import { writeAudit } from "../common/utils/audit";
 import { bangkokDayFilter } from "../common/utils/dates";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
@@ -89,7 +90,7 @@ export class AppointmentsService {
       ...this.scope(user),
       ...viewWhere,
       // The filters narrow the tab (AND), so they never widen what a tab shows.
-      AND: [...(await this.filters(query)), ...searchTokens(query.q).map((token) => {
+      AND: [...(await this.filters(user, query)), ...searchTokens(query.q).map((token) => {
         const or: Prisma.AppointmentWhereInput[] = [
           { customer: { firstName: { contains: token, mode: "insensitive" } } },
           { customer: { lastName: { contains: token, mode: "insensitive" } } },
@@ -114,12 +115,15 @@ export class AppointmentsService {
    * phone booking); "customer" = everything else. Staff logins are few, so that's one
    * small lookup rather than a join.
    */
-  private async filters(query: AppointmentListQuery): Promise<Prisma.AppointmentWhereInput[]> {
+  private async filters(user: AuthUser, query: AppointmentListQuery): Promise<Prisma.AppointmentWhereInput[]> {
     const filters: Prisma.AppointmentWhereInput[] = [];
     if (query.status) filters.push({ status: { in: query.status } });
     if (query.from || query.to) filters.push({ scheduledAt: bangkokDayFilter(query.from, query.to) });
     if (query.bookedBy) {
-      const staff = await this.prisma.user.findMany({ where: { role: { not: "CUSTOMER" } }, select: { id: true } });
+      const staff = await this.prisma.user.findMany({
+        where: { shopId: requireShop(user), role: { not: "CUSTOMER" } },
+        select: { id: true },
+      });
       const staffIds = staff.map((row) => row.id);
       filters.push({ createdById: query.bookedBy === "staff" ? { in: staffIds } : { notIn: staffIds } });
     }

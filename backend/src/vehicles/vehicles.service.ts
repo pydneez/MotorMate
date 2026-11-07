@@ -20,6 +20,7 @@ import {
   type VehicleSummary,
 } from "@motormate/types";
 import type { z } from "zod";
+import { requireShop } from "../common/tenancy/shop-records";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { phoneSearchFragment } from "../common/utils/phone-search";
@@ -102,7 +103,7 @@ export class VehiclesService {
     const { customerId: _ignored, ...fields } = input;
     return this.prisma.$transaction(async (tx) => {
       const vehicle = await tx.vehicle.create({
-        data: { ...fields, customerId, plateNormalized: normalizePlate(fields.plate) },
+        data: { ...fields, shopId: requireShop(user), customerId, plateNormalized: normalizePlate(fields.plate) },
         include: vehicleSummaryInclude,
       });
       await writeAudit(tx, {
