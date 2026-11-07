@@ -255,7 +255,7 @@ describe("searchTokens", () => {
 describe("form schemas accept their own output (browser → API round trip)", () => {
   const empty = { lineId: "", email: "", notes: "", color: "" };
   const cases: [string, ZodTypeAny, Record<string, unknown>][] = [
-    ["RegisterSchema", RegisterSchema, { firstName: "A", lastName: "B", email: "A@B.com", phone: "081 234 5678", lineId: "", password: "password123" }],
+    ["RegisterSchema", RegisterSchema, { shopId: "shop-1", firstName: "A", lastName: "B", email: "A@B.com", phone: "081 234 5678", lineId: "", password: "password123" }],
     ["CreateCustomerSchema", CreateCustomerSchema, { firstName: "A", lastName: "B", phone: "0812345678", ...empty }],
     ["UpdateCustomerSchema (fields cleared)", UpdateCustomerSchema, { firstName: "A", lastName: "B", phone: "02-123-4567", email: "", lineId: "", notes: "" }],
     ["UpdateCustomerSchema (fields set)", UpdateCustomerSchema, { email: "X@Y.com", lineId: " jordan ", notes: "VIP" }],
