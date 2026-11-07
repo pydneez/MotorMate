@@ -84,10 +84,11 @@ deployer_arn() {
   esac
 }
 
-# stack_param <stack> <parameter> — a deployed stack's current parameter value, or empty.
+# stack_param <stack> <parameter> — a deployed stack's current parameter value, or empty
+# (also when the stack doesn't exist: `|| true`, or pipefail + set -e would end the script).
 stack_param() {
-  aws cloudformation describe-stacks --stack-name "$1" \
-    --query "Stacks[0].Parameters[?ParameterKey=='$2'].ParameterValue" --output text 2>/dev/null \
+  { aws cloudformation describe-stacks --stack-name "$1" \
+      --query "Stacks[0].Parameters[?ParameterKey=='$2'].ParameterValue" --output text 2>/dev/null || true; } \
     | sed 's/^None$//'
 }
 
