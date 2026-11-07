@@ -21,8 +21,11 @@ export class UsersController {
   constructor(private readonly users: UsersService) {}
 
   @Get()
-  list(@Query(new ZodValidationPipe(StaffListQuerySchema)) query: StaffListQuery): Promise<Paginated<StaffUser>> {
-    return this.users.list(query);
+  list(
+    @CurrentUser() actor: AuthUser,
+    @Query(new ZodValidationPipe(StaffListQuerySchema)) query: StaffListQuery,
+  ): Promise<Paginated<StaffUser>> {
+    return this.users.list(actor, query);
   }
 
   @Post()

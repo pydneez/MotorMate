@@ -21,6 +21,8 @@ function staff(overrides: Record<string, unknown> = {}) {
 
 function setup() {
   const { prisma, service } = createPrismaMock();
+  // Lookups that are unique per shop are findFirst now; answer them like findUnique.
+  prisma.user.findFirst.mockImplementation((args: unknown) => prisma.user.findUnique(args));
   return { prisma, users: new UsersService(service) };
 }
 
@@ -34,9 +36,10 @@ describe("UsersService.list", () => {
     prisma.user.findMany.mockResolvedValue([staff()]);
     prisma.user.count.mockResolvedValue(1);
 
-    const result = await users.list({ page: 1, pageSize: 20 });
+    const result = await users.list(makeAuthUser(), { page: 1, pageSize: 20 });
 
     const where = prisma.user.findMany.mock.calls[0][0].where;
+    expect(where.shopId).toBe("shop-1");
     expect(where.role).toEqual({ in: ["ADMIN", "ADVISOR", "MECHANIC"] });
     expect(where.isActive).toBe(true);
     expect(result).toEqual({ items: [staff()], total: 1, page: 1, pageSize: 20 });
@@ -44,7 +47,7 @@ describe("UsersService.list", () => {
 
   it("includes deactivated staff and filters by role when asked", async () => {
     const { prisma, users } = setup();
-    await users.list({ page: 2, pageSize: 10, role: "MECHANIC", includeInactive: true, q: "sam nguyen" });
+    await users.list(makeAuthUser(), { page: 2, pageSize: 10, role: "MECHANIC", includeInactive: true, q: "sam nguyen" });
 
     const args = prisma.user.findMany.mock.calls[0][0];
     expect(args.where.role).toBe("MECHANIC");

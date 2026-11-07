@@ -11,6 +11,7 @@ import type {
   UpdateStaffInput,
 } from "@motormate/types";
 import { BCRYPT_ROUNDS } from "../auth/auth.service";
+import { requireShop } from "../common/tenancy/shop-records";
 import { diffFields, writeAudit } from "../common/utils/audit";
 import { pageArgs, paginated, searchTokens } from "../common/utils/pagination";
 import { PrismaService } from "../prisma/prisma.service";
@@ -28,13 +29,18 @@ const staffSelect = {
   createdAt: true,
 } satisfies Prisma.UserSelect;
 
-/** Staff account management (ADMIN only). Customer logins are never returned or touched here. */
+/**
+ * Staff account management (ADMIN only), within the admin's own shop. Customer logins are
+ * never returned or touched here. Users aren't covered by the automatic shop filter (logins
+ * are global), so every query here filters on the shop itself.
+ */
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: StaffListQuery): Promise<Paginated<StaffUser>> {
+  async list(actor: AuthUser, query: StaffListQuery): Promise<Paginated<StaffUser>> {
     const where: Prisma.UserWhereInput = {
+      shopId: requireShop(actor),
       role: query.role ?? { in: [...STAFF_ROLES] },
       ...(query.includeInactive ? {} : { isActive: true }),
       AND: searchTokens(query.q).map((token) => ({
@@ -68,6 +74,7 @@ export class UsersService {
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
+          shopId: requireShop(actor),
           email: input.email,
           firstName: input.firstName,
           lastName: input.lastName,
@@ -88,10 +95,10 @@ export class UsersService {
   }
 
   async update(actor: AuthUser, id: string, input: UpdateStaffInput): Promise<StaffUser> {
-    const user = await this.findStaff(id);
+    const user = await this.findStaff(actor, id);
     if (input.role && input.role !== user.role) {
       if (id === actor.id) throw new ForbiddenException("You can't change your own role");
-      if (user.role === "ADMIN" && user.isActive) await this.assertNotLastAdmin();
+      if (user.role === "ADMIN" && user.isActive) await this.assertNotLastAdmin(actor);
     }
 
     const changes = diffFields(user, input);
@@ -106,21 +113,21 @@ export class UsersService {
 
   async deactivate(actor: AuthUser, id: string): Promise<StaffUser> {
     if (id === actor.id) throw new ForbiddenException("You can't deactivate your own account");
-    const user = await this.findStaff(id);
+    const user = await this.findStaff(actor, id);
     if (!user.isActive) return user; // already deactivated — nothing to do
-    if (user.role === "ADMIN") await this.assertNotLastAdmin();
+    if (user.role === "ADMIN") await this.assertNotLastAdmin(actor);
 
     return this.setActive(actor, id, false);
   }
 
   async reactivate(actor: AuthUser, id: string): Promise<StaffUser> {
-    const user = await this.findStaff(id);
+    const user = await this.findStaff(actor, id);
     if (user.isActive) return user; // already active — nothing to do
     return this.setActive(actor, id, true);
   }
 
   async resetPassword(actor: AuthUser, id: string, input: ResetPasswordInput): Promise<void> {
-    await this.findStaff(id);
+    await this.findStaff(actor, id);
     const passwordHash = await bcrypt.hash(input.temporaryPassword, BCRYPT_ROUNDS);
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({ where: { id }, data: { passwordHash } });
@@ -141,16 +148,16 @@ export class UsersService {
     });
   }
 
-  /** 404 for unknown ids and for customer accounts — they aren't managed here. */
-  private async findStaff(id: string): Promise<StaffUser> {
-    const user = await this.prisma.user.findUnique({ where: { id }, select: staffSelect });
+  /** 404 for unknown ids, other shops' staff and customer accounts — they aren't managed here. */
+  private async findStaff(actor: AuthUser, id: string): Promise<StaffUser> {
+    const user = await this.prisma.user.findFirst({ where: { id, shopId: requireShop(actor) }, select: staffSelect });
     if (!user || user.role === "CUSTOMER") throw new NotFoundException("Staff member not found");
     return user as StaffUser;
   }
 
-  /** Called before an action would remove one active admin. */
-  private async assertNotLastAdmin(): Promise<void> {
-    const activeAdmins = await this.prisma.user.count({ where: { role: "ADMIN", isActive: true } });
+  /** Called before an action would remove one of the shop's active admins. */
+  private async assertNotLastAdmin(actor: AuthUser): Promise<void> {
+    const activeAdmins = await this.prisma.user.count({ where: { shopId: requireShop(actor), role: "ADMIN", isActive: true } });
     if (activeAdmins <= 1) {
       throw new ConflictException("There must always be at least one active administrator");
     }
