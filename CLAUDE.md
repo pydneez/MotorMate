@@ -535,7 +535,7 @@ The build is done in numbered steps (Step 1 = schema + auth, Step 2 = ...). For 
 Several team members build MotorMate, each with their own Claude Code. These are the habits
 the build has followed so far — keep them.
 
-**Where things stand (Nov 4, 2026).** Merged: Steps 1–5 (schema + auth, customers / vehicles
+**Where things stand (Nov 7, 2026).** Merged: Steps 1–5 (schema + auth, customers / vehicles
 / inventory, work orders + invoices, AWS deployment, invoice PDF, appointments, reminder
 engine), reports (PR #21), list filters + sorting (PR #22), status buttons / colours /
 appointment filters (PR #23), customer Visits list (PR #24; the customer-side "My visits",
@@ -546,9 +546,10 @@ shop details + the price list, used by labour lines, bookings and Reports (136�
 PR #27) and Step 13 — a required reason for list-price changes, My appointments width,
 scrolling tables (166–167; PR #28). Step 14 — the demo account in "full" mode: CloudFront
 with the ALB locked to it, least-privilege roles, Secrets Manager, Multi-AZ + a failover
-test (168–171; PR #29). Step 15 — multi-shop "lite" + platform admin (174–177) — is on
-`feat/multi-shop`. **Next:** the final document, the demo deploy and end-to-end tests (161)
-in the week of Nov 9.
+test (168–171; PR #29) and Step 15 — multi-shop "lite" + platform admin (174–177; PRs #30,
+#31). **The demo account is deployed** (Nov 7, main at `14c07ca`: smoke test 20/20, scripted
+multi-shop checks 22/22) and stays up until the Nov 17 presentation — don't run `down.sh`
+there. **Next:** the final document, end-to-end tests (161), code freeze Nov 10.
 
 **Commits and PRs**
 - Claude never commits or pushes; it hands over the commands. Several **small,
@@ -658,7 +659,9 @@ vehicles, 45 completed jobs with invoices (most paid), one open job per status, 
 mechanic (`mechanic2@`), stock purchases + parts used as movements, routine labour linked to
 the price list (`prisma/price-list.ts`, 8 services, also in the plain seed), recommendations in every
 reminder state, appointments in every status. Dated relative to today, seeded random (same
-every run), runs once (skips if demo customers exist), sends nothing. Also a **second shop**,
+every run), sends nothing. The main shop's history and the second shop each run once (each
+is added if it's missing, so a database seeded before multi-shop gets the second shop on the
+next run). Also a **second shop**,
 Siam Garage (`shop_siam`, admin `admin@siamgarage.example`), with its own price list and 3
 customers — Jordan is linked to it too, so the shop switcher has something to switch.
 `backend/test/seed-demo.int-spec.ts` checks it keeps the app's rules (invoice totals, stock
