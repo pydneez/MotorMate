@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
-import { PASSWORD_MIN_LENGTH, RegisterFormSchema, type LoginResponse } from "@motormate/types";
-import { Alert, AuthCard, Button, Field } from "@/components/ui";
+import { PASSWORD_MIN_LENGTH, RegisterFormSchema, type LoginResponse, type ShopOption } from "@motormate/types";
+import { Alert, AuthCard, Button, Field, SelectField } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 
-const FIELDS = ["firstName", "lastName", "phone", "lineId", "email", "password", "confirmPassword"] as const;
+const FIELDS = ["shopId", "firstName", "lastName", "phone", "lineId", "email", "password", "confirmPassword"] as const;
 type FieldName = (typeof FIELDS)[number];
 
 export default function RegisterPage() {
@@ -16,6 +16,14 @@ export default function RegisterPage() {
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldName, string>>>({});
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [shops, setShops] = useState<ShopOption[] | null>(null);
+
+  // The garages on MotorMate (public list). More can be linked later from My Shops.
+  useEffect(() => {
+    api<ShopOption[]>("/shops")
+      .then(setShops)
+      .catch(() => setError("Can't load the list of shops. Please refresh the page."));
+  }, []);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -63,6 +71,16 @@ export default function RegisterPage() {
   return (
     <AuthCard title="Create your MotorMate account">
       <form onSubmit={onSubmit} noValidate className="space-y-4">
+        <SelectField label="Your garage" name="shopId" defaultValue="" error={fieldErrors.shopId} disabled={shops === null}>
+          <option value="" disabled>
+            {shops === null ? "Loading shops…" : "Choose the shop you use"}
+          </option>
+          {shops?.map((shop) => (
+            <option key={shop.id} value={shop.id}>
+              {shop.name} — {shop.address.split("\n").at(-1)}
+            </option>
+          ))}
+        </SelectField>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="First name" name="firstName" maxLength={60} autoComplete="given-name" error={fieldErrors.firstName} />
           <Field label="Last name" name="lastName" maxLength={60} autoComplete="family-name" error={fieldErrors.lastName} />
@@ -95,8 +113,8 @@ export default function RegisterPage() {
           />
         </div>
         <p className="text-xs text-slate-500">
-          Already a customer at the shop? Use the same email and phone number you gave us and your vehicles and service
-          history will be linked automatically.
+          Already a customer at that shop? Use the same email and phone number you gave them and your vehicles and service
+          history will be linked automatically. You can link more shops after signing up.
         </p>
         {error && <Alert>{error}</Alert>}
         <Button type="submit" loading={loading} className="w-full">
