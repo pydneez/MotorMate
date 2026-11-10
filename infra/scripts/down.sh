@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Nightly teardown: deletes everything that costs money while idle — the app stack (load
-# balancer, containers, API Gateway or CloudFront) and, unless --keep-db, the database.
+# Teardown: deletes everything that costs money while idle — the app stack (load balancer,
+# containers, CloudFront) and, unless --keep-db, the database.
 # Keeps the base stack (free) and the images in ECR, so the next up.sh is faster.
 #
-#   bash infra/scripts/down.sh            # dev account, end of a work session
+#   bash infra/scripts/down.sh            # deletes the app and the database
 #   bash infra/scripts/down.sh --keep-db  # keep the database (e.g. demo data you entered)
 
 source "$(dirname "$0")/lib.sh"

@@ -8,22 +8,13 @@ Description: >-
 # pull from ECR without a NAT Gateway, ~$32/month). Isolated subnets have no internet
 # route at all and hold only the database.
 #
-# Mode (set by up.sh): "learner-lab" uses the pre-made LabRole for everything (Learner Lab
-# can't create roles); "full" creates one least-privilege role per job instead. Either way
-# the role ARNs are exported, so the db and app stacks don't need to know the mode.
+# One least-privilege IAM role per job; their ARNs are exported for the db and app stacks.
 
 Parameters:
-  Mode:
-    Type: String
-    AllowedValues: [learner-lab, full]
-    Default: learner-lab
   DeployerArn:
     Type: String
     Default: ""
-    Description: full mode - the IAM user/role running the scripts (may empty the invoice bucket)
-
-Conditions:
-  Full: !Equals [!Ref Mode, full]
+    Description: the IAM user/role running the scripts (may empty the invoice bucket)
 
 Resources:
   Vpc:
@@ -126,8 +117,7 @@ Resources:
       RouteTableId: !Ref DbRouteTable
 
   # ── Security groups: internet → ALB → app containers → database ─────────────
-  # Its inbound rule lives in the app stack, which knows the front door: anywhere for API
-  # Gateway (no fixed IPs), only CloudFront's addresses in full mode.
+  # Its inbound rule lives in the app stack: only CloudFront's addresses.
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -142,7 +132,7 @@ Resources:
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref AlbSecurityGroup }
-        # The frontend server's own API calls over private DNS (full mode, see app stack).
+        # The frontend server's own API calls over private DNS (see app stack).
         - { IpProtocol: tcp, FromPort: 8080, ToPort: 8080, SourceSecurityGroupId: !Ref FrontendSecurityGroup }
       Tags: [{ Key: Name, Value: motormate-backend }]
 
@@ -227,8 +217,7 @@ Resources:
         Rules: [{ ObjectOwnership: BucketOwnerEnforced }]
 
   # HTTPS only, and only two principals at all: the backend's role (presigned links are
-  # signed with it too) and whoever runs the scripts, so they can empty and delete it —
-  # LabRole + voclabs in Learner Lab, the backend task role + the deployer in full mode.
+  # signed with it too) and whoever runs the scripts, so they can empty and delete it.
   InvoiceBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -242,21 +231,17 @@ Resources:
             Action: "s3:*"
             Resource: [!GetAtt InvoiceBucket.Arn, !Sub "${InvoiceBucket.Arn}/*"]
             Condition: { Bool: { "aws:SecureTransport": "false" } }
-          - Sid: AppAndLabUserOnly
+          - Sid: AppAndDeployerOnly
             Effect: Deny
             Principal: "*"
             Action: "s3:*"
             Resource: [!GetAtt InvoiceBucket.Arn, !Sub "${InvoiceBucket.Arn}/*"]
             Condition:
               ArnNotLike:
-                "aws:PrincipalArn": !If
-                  - Full
-                  - [!GetAtt BackendTaskRole.Arn, !Ref DeployerArn]
-                  - - !Sub arn:aws:iam::${AWS::AccountId}:role/LabRole
-                    - !Sub arn:aws:iam::${AWS::AccountId}:role/voclabs
+                "aws:PrincipalArn": [!GetAtt BackendTaskRole.Arn, !Ref DeployerArn]
 
   # ── Customer emails ──────────────────────────────────────────────────────────
-  # SES is blocked in Learner Lab, so emails go through SNS: each customer with an email gets
+  # SES is sandbox-only in this account, so emails go through SNS: each customer with an email gets
   # one subscription to this topic, filtered on their id (the API subscribes them; they
   # confirm once from AWS's email). Kept between sessions so confirmations survive.
   NotifyTopic:
@@ -265,11 +250,10 @@ Resources:
       TopicName: motormate-notifications
       DisplayName: MotorMate
 
-  # ── Roles (full mode; Learner Lab uses LabRole for all of these) ───────────────
+  # ── Roles ────────────────────────────────────────────────────────────────────
   # Pulls images, writes logs and reads our secrets (motormate/*) when a task starts.
   ExecutionRole:
     Type: AWS::IAM::Role
-    Condition: Full
     Properties:
       Description: MotorMate ECS execution role - images, logs, motormate/* secrets
       AssumeRolePolicyDocument:
@@ -290,7 +274,6 @@ Resources:
   # What the API itself calls: invoice PDFs in our bucket and customer emails on our topic.
   BackendTaskRole:
     Type: AWS::IAM::Role
-    Condition: Full
     Properties:
       Description: MotorMate API - invoice PDFs and customer emails only
       AssumeRolePolicyDocument:
@@ -323,7 +306,6 @@ Resources:
   # The frontend and the migration task call no AWS APIs at all.
   NoPermissionsTaskRole:
     Type: AWS::IAM::Role
-    Condition: Full
     Properties:
       Description: MotorMate tasks that call no AWS APIs (frontend, migrations)
       AssumeRolePolicyDocument:
@@ -334,7 +316,6 @@ Resources:
   # The daily-jobs Lambda: its own logs and the job-token secret.
   JobsFunctionRole:
     Type: AWS::IAM::Role
-    Condition: Full
     Properties:
       Description: MotorMate daily-jobs Lambda - logs and the job token
       AssumeRolePolicyDocument:
@@ -355,7 +336,6 @@ Resources:
   # EventBridge Scheduler may start that one function, nothing else.
   SchedulerRole:
     Type: AWS::IAM::Role
-    Condition: Full
     Properties:
       Description: MotorMate schedules - invoke the daily-jobs Lambda
       AssumeRolePolicyDocument:
@@ -424,21 +404,21 @@ Outputs:
   NotifyTopic:
     Value: !Ref NotifyTopic
     Export: { Name: motormate-NotifyTopic }
-  # Roles: our own in full mode, LabRole in Learner Lab.
+  # Roles
   ExecutionRoleArn:
-    Value: !If [Full, !GetAtt ExecutionRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Value: !GetAtt ExecutionRole.Arn
     Export: { Name: motormate-ExecutionRoleArn }
   BackendTaskRoleArn:
-    Value: !If [Full, !GetAtt BackendTaskRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Value: !GetAtt BackendTaskRole.Arn
     Export: { Name: motormate-BackendTaskRoleArn }
   NoPermissionsTaskRoleArn:
-    Value: !If [Full, !GetAtt NoPermissionsTaskRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Value: !GetAtt NoPermissionsTaskRole.Arn
     Export: { Name: motormate-NoPermissionsTaskRoleArn }
   JobsFunctionRoleArn:
-    Value: !If [Full, !GetAtt JobsFunctionRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Value: !GetAtt JobsFunctionRole.Arn
     Export: { Name: motormate-JobsFunctionRoleArn }
   SchedulerRoleArn:
-    Value: !If [Full, !GetAtt SchedulerRole.Arn, !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:role/LabRole"]
+    Value: !GetAtt SchedulerRole.Arn
     Export: { Name: motormate-SchedulerRoleArn }
   BackendRepositoryUri:
     Value: !GetAtt BackendRepository.RepositoryUri

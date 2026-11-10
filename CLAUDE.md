@@ -23,9 +23,9 @@ Deadline: code freeze **Nov 10, 2026**, final presentation **Nov 17, 2026**.
 | Backend | NestJS, TypeScript |
 | ORM | Prisma |
 | Database | PostgreSQL — Docker locally, Amazon RDS in staging/prod |
-| Hosting | Both apps as Docker containers on AWS ECS Fargate behind **one** Application Load Balancer (`/v1/*` → backend, 2 tasks; everything else → frontend, 1 task — 2 in the demo account), images in ECR. HTTPS from **CloudFront** in the demo account ("full" mode: the ALB only answers CloudFront), from an API Gateway HTTP API in Learner Lab (CloudFront denied there) — see AWS deployment |
+| Hosting | Both apps as Docker containers on AWS ECS Fargate behind **one** Application Load Balancer (`/v1/*` → backend, 2 tasks; everything else → frontend, 2 tasks), images in ECR. HTTPS from **CloudFront**; the ALB only answers CloudFront — see AWS deployment |
 | File storage | Amazon S3 (invoice PDFs, vehicle photos) |
-| Customer emails | Amazon SNS email subscriptions — SES is blocked in Learner Lab (see Reminders below) |
+| Customer emails | Amazon SNS email subscriptions — SES is sandbox-only in the demo account (see Reminders below) |
 | Scheduled jobs | Amazon EventBridge Scheduler (09:00 and 18:30 Bangkok) → AWS Lambda → the API's job endpoints |
 | Logging / monitoring | Amazon CloudWatch (ECS `awslogs` driver) |
 | CI | GitHub Actions (`.github/workflows/ci.yml`): typecheck + lint + unit tests, and integration tests against a Postgres service, on every PR and push to main |
@@ -118,7 +118,7 @@ a static export, because NextAuth's `/api/auth/*` routes need a server runtime.
 frontend picks the base URL in `apiBaseUrl()` (`frontend/lib/api.ts`): the browser uses
 `NEXT_PUBLIC_API_URL` (`http://localhost:8080/v1` locally, the relative `/v1` on AWS where
 site and API share one address — baked in at build time); the Next.js server uses
-`API_INTERNAL_URL` (the load balancer, read at runtime) when set. One frontend image
+`API_INTERNAL_URL` (the Cloud Map private DNS name, read at runtime) when set. One frontend image
 therefore works in every AWS account.
 
 ## Backend module structure
@@ -334,7 +334,8 @@ schema before calling the API. List search and paging live in the URL.
   - The jobs run as `POST /v1/jobs/morning|close-day` with header `x-job-token: $JOB_TOKEN`
     (`@Public`; without `JOB_TOKEN` the endpoint is off). An inline Node Lambda calls it,
     started by two EventBridge Scheduler schedules (`infra/cloudformation/app.yml`).
-- **Emails go through SNS, not SES** — SES is denied in Learner Lab. One topic
+- **Emails go through SNS, not SES** — SES is sandbox-only in the demo account and we have no
+  domain to verify. One topic
   (`motormate-notifications`, base stack); every email address gets **one subscription
   filtered on that address** (lower-cased), made automatically when the email is added
   (sign-up, staff create/edit) and by the morning job's catch-up. AWS emails a confirmation
@@ -544,7 +545,7 @@ wider smoke test, end-to-end hand-off; Jira 158–161), Step 11 — check-in jou
 inventory turnover / labour lines in Reports (162–164; PR #26) and Step 12 — Settings page:
 shop details + the price list, used by labour lines, bookings and Reports (136–140, 165;
 PR #27) and Step 13 — a required reason for list-price changes, My appointments width,
-scrolling tables (166–167; PR #28). Step 14 — the demo account in "full" mode: CloudFront
+scrolling tables (166–167; PR #28). Step 14 — the demo account: CloudFront
 with the ALB locked to it, least-privilege roles, Secrets Manager, Multi-AZ + a failover
 test (168–171; PR #29) and Step 15 — multi-shop "lite" + platform admin (174–177; PRs #30,
 #31). **The demo account is deployed** (Nov 7, main at `14c07ca`: smoke test 20/20, scripted
@@ -586,18 +587,16 @@ connect it with your own Jira login)
 - Dev servers are often already running on :3000 / :8080 — check before starting new ones.
 - Browser tests: note the UTC time first, then delete the rows you created (children first)
   and restore anything you changed; leave the seed data as it was.
-- After every AWS session: `bash infra/scripts/down.sh` (Learner Lab keeps billing).
+- The demo account stays up until the Nov 17 presentation: don't run `down.sh` or `nuke.sh`
+  there before then. Afterwards, `bash infra/scripts/nuke.sh --yes` removes everything.
 
 **For the final project document** (graded against the kickoff report): every change of
-design needs a one-line "why". So far: no domain → HTTPS from API Gateway's certificate
-(CloudFront denied); Amplify → frontend as an ECS container (Amplify restricted); Cognito →
+design needs a one-line "why". So far: no domain → HTTPS from CloudFront's default
+certificate; Amplify → frontend as an ECS container (Amplify restricted); Cognito →
 NextAuth + our own JWT; private subnets + NAT → public subnets with locked-down security
-groups (NAT too expensive); SES → SNS email (SES denied in Learner Lab, sandbox-only and
-no domain in the demo account); Multi-AZ only in the demo account (cost — for one shop,
-single-AZ with point-in-time backups would do; Multi-AZ shows the design scales); the dev
-account (Learner Lab) has only `LabRole` and no CloudFront, so the demo account runs the
-production-style "full" mode (CloudFront, own roles, Secrets Manager) and dev keeps API
-Gateway + `LabRole` + env-var secrets; one shop → many shops on one deployment (shared
+groups (NAT too expensive); SES → SNS email (SES is sandbox-only and we have no domain);
+Multi-AZ (for one shop, single-AZ with point-in-time backups would do; Multi-AZ shows the
+design scales); one shop → many shops on one deployment (shared
 tables with a `shopId` and an automatic app-level filter; row-level security in PostgreSQL
 is the production plan) with self-registration and a platform admin to suspend shops;
 reports show revenue, not profit (no cost snapshot on parts used); no customer "My visits"
@@ -697,66 +696,43 @@ Values that must agree **across files**:
   frontend's origin.
 - `NEXTAUTH_SECRET` and `JWT_SECRET` do **not** need to match (see Auth architecture).
 
-## AWS deployment (Learner Lab dev + the course's demo account)
+## AWS deployment (the course's demo account)
 
-- Each team member has their own Learner Lab account ($50 budget each); accounts can't be
-  shared and IAM users/roles can't be created — every service uses the pre-made
-  `LabRole` / `LabInstanceProfile`. Credentials are temporary (expire with the lab
-  session), so deploys are run by the account owner, not by long-lived CI secrets.
-- **The demo account (528301714999) is different:** a shared course account (other teams'
-  stacks are there too) where our IAM user `des424-126-g03` may do almost anything except
-  manage IAM users/groups. Budget ≈ 4,000 baht; everything is deleted after the course. Use
-  it through the `motormate-demo` CLI profile (`export AWS_PROFILE=motormate-demo`); the
-  scripts only touch `motormate-*` resources. SES there is sandbox-only, so emails stay on SNS.
-- **Two deploy modes** (one switch, `Mode` on every stack; `up.sh` picks `learner-lab` for a
-  `voclabs` session and `full` otherwise, `--lab`/`--full` override):
-  - `learner-lab`: API Gateway in front of an ALB open on port 80, `LabRole` everywhere,
-    secrets as container env vars, the frontend server calls the API through the ALB.
-  - `full`: **CloudFront** (`/_next/static/*` cached, the rest passed through) → ALB that
-    only accepts CloudFront's origin-facing prefix list **and** a secret `X-Origin-Verify`
-    header (else 403); five **least-privilege roles** in the base stack (execution, backend
-    task: our bucket's `invoices/*` + our SNS topic, a no-permission task role, Lambda,
-    Scheduler); **Secrets Manager** (`motormate/app-<stack id>`, `motormate/db-<stack id>` —
-    named per stack because a deleted secret keeps its name for 7 days); the frontend server
-    reaches the API over Cloud Map private DNS (`backend.motormate.local:8080`).
-  - The base stack exports the role ARNs (LabRole in learner-lab), so db/app don't branch on it.
-- Infrastructure lives in the repo as scripts/CloudFormation (no CDK — its bootstrap
-  creates IAM roles, which Learner Lab blocks), so any member can recreate the
-  environment in their own account.
-- **Two accounts:** a dev account that is deployed during work sessions and torn down at
-  night, and a separate demo account deployed ~Nov 8–10 and left running through the
-  Nov 17 presentation.
+- **Demo account (528301714999):** a shared course account (other teams' stacks are there too)
+  where our IAM user `des424-126-g03` may do almost anything except manage IAM users/groups.
+  Budget ≈ 4,000 baht; everything is deleted after the course. Use it through the
+  `motormate-demo` CLI profile (`export AWS_PROFILE=motormate-demo`); the scripts only touch
+  `motormate-*` resources. It stays up through the Nov 17 presentation.
+- **What runs there:** **CloudFront** (`/_next/static/*` cached, the rest passed through) → ALB
+  that only accepts CloudFront's origin-facing prefix list **and** a secret `X-Origin-Verify`
+  header (else 403) → ECS Fargate (2 frontend + 2 backend tasks). Five **least-privilege roles**
+  in the base stack (execution, backend task: our bucket's `invoices/*` + our SNS topic, a
+  no-permission task role, Lambda, Scheduler). **Secrets Manager** (`motormate/app-<stack id>`,
+  `motormate/db-<stack id>` — named per stack because a deleted secret keeps its name for 7
+  days). The frontend server reaches the API over Cloud Map private DNS
+  (`backend.motormate.local:8080`).
+- Infrastructure lives in the repo as scripts/CloudFormation (no CDK).
 - Cost rules: Fargate tasks in public subnets with public IPs — **no NAT Gateway**;
-  RDS `db.t3.micro` with automated backups and encryption at rest.
+  RDS `db.t3.micro`, Multi-AZ, with automated backups and encryption at rest.
 - No custom domain → Route 53 / ACM-with-own-domain are "production plan" items in the
-  final document; HTTPS comes from CloudFront's default `*.cloudfront.net` certificate
-  (full) or the API Gateway HTTP API's `*.execute-api.amazonaws.com` one (learner-lab),
-  both proxying the whole site to the ALB (30-second limit — fine for this app).
-- Tested in Learner Lab: **CloudFront is denied**, **Amplify's role is restricted** (so the
-  frontend is a container too), API Gateway HTTP APIs are allowed, only us-east-1/us-west-2,
-  and resources **keep running and billing after the lab session ends** — tear down nightly.
-  An ALB needs its own security group allowing inbound 80 (not the default SG).
+  final document; HTTPS comes from CloudFront's default `*.cloudfront.net` certificate.
 - Secrets (`JWT_SECRET`, `NEXTAUTH_SECRET`, DB password, `JOB_TOKEN`, `ORIGIN_SECRET`) are
-  generated per account and passed as hidden (`NoEcho`) stack parameters; full mode stores
-  them in Secrets Manager and the containers/Lambda read them from there.
+  generated into `infra/.secrets/<account>.env` (gitignored), passed as hidden (`NoEcho`) stack
+  parameters and stored in Secrets Manager; the containers and the Lambda read them from there.
 - **`infra/`** (guide: `infra/README.md`): three CloudFormation stacks —
   `motormate-base` (VPC, public + isolated subnets, security groups, ECR, ECS cluster, log groups,
-  invoice bucket, SNS topic, full-mode roles; kept), `motormate-db` (RDS PostgreSQL 16
-  `db.t3.micro`, encrypted, 7-day backups; `--multi-az` in the demo account) and
-  `motormate-app` (ALB, ECS services, CloudFront or API Gateway, daily-jobs Lambda + 2
-  schedules; full mode also the app secret and private DNS).
-  Scripts in `infra/scripts/` (Git Bash): `up.sh [--multi-az] [--frontend-count N]
-  [--lab|--full]` (base → db + images in parallel → `migrate.sh` → app → seed; options left
-  out keep their deployed value), `down.sh` (deletes app + db — run at the end of every dev
-  session), `smoke.sh` (full mode also checks the ALB refuses direct requests),
-  `status.sh`, `seed.sh [--demo]`, `build-push.sh`, `failover-test.sh [--tasks|--all]`
-  (forces an RDS failover / stops a task per service while polling the site, reports the
-  outage), `nuke.sh --yes`. Secrets are generated per account into
-  `infra/.secrets/<account>.env` (gitignored). Images are tagged with the git commit;
-  re-running `up.sh` after a commit rolls out the new version. `deploy_stack` passes
-  `CAPABILITY_IAM` (the base stack creates roles in full mode).
-- Running cost ≈ $0.10/hour in dev (3 Fargate tasks + public IPs, ALB, RDS) and ≈ $0.13/hour
-  in the demo account (4 tasks, Multi-AZ RDS; CloudFront and Secrets Manager are cents a
+  invoice bucket, SNS topic, IAM roles; kept), `motormate-db` (RDS PostgreSQL 16 `db.t3.micro`,
+  encrypted, 7-day backups, Multi-AZ) and `motormate-app` (ALB, ECS services, CloudFront,
+  daily-jobs Lambda + 2 schedules, the app secret and private DNS).
+  Scripts in `infra/scripts/` (Git Bash): `up.sh [--multi-az] [--frontend-count N]`
+  (base → db + images in parallel → `migrate.sh` → app → seed; options left out keep their
+  deployed value), `smoke.sh` (also checks the ALB refuses direct requests), `status.sh`,
+  `seed.sh [--demo]`, `build-push.sh`, `failover-test.sh [--tasks|--all]` (forces an RDS
+  failover / stops a task per service while polling the site, reports the outage), `down.sh`
+  (deletes app + db) and `nuke.sh --yes` (deletes everything; after the course). Images are
+  tagged with the git commit; re-running `up.sh` after a commit rolls out the new version.
+  `deploy_stack` passes `CAPABILITY_IAM` (the base stack creates roles).
+- Running cost ≈ $0.13/hour (4 tasks, Multi-AZ RDS; CloudFront and Secrets Manager are cents a
   day). Prefer the AWS MCP for ad-hoc AWS checks; the scripts themselves use the AWS CLI.
 
 ## Parked ideas (nice-to-have, not scheduled)
@@ -779,7 +755,7 @@ items are removed from it.
 
 - Multi-branch support *within one business* (shared stock, staff across branches). Separate
   shops are supported (Step 15), each fully on its own.
-- SMS reminders — SNS SMS is denied in Learner Lab; email only.
+- SMS reminders — email only.
 - Cognito — replaced by NextAuth.js, don't reintroduce without discussion.
 - Appointment slot/capacity management, drag-and-drop calendars — appointments are "Lite".
 - Customer email verification — documented as the production plan only.

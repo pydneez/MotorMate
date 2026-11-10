@@ -40,7 +40,6 @@ leftovers() {
     --query "clusters[?status=='ACTIVE'].clusterName" --output text
   check "CloudFront distribution" aws cloudfront list-distributions \
     --query "DistributionList.Items[?Comment=='MotorMate'].Id" --output text
-  check "API Gateway" aws apigatewayv2 get-apis --query "Items[?Name=='motormate'].ApiId" --output text
   check "Cloud Map namespace" aws servicediscovery list-namespaces \
     --query "Namespaces[?Name=='motormate.local'].Id" --output text
   check "Lambda" aws lambda list-functions \

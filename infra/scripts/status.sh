@@ -17,7 +17,7 @@ if [ "$(stack_status "$APP_STACK")" != "NONE" ]; then
   aws ecs describe-services --cluster motormate --services backend frontend \
     --query 'services[].[serviceName,runningCount,desiredCount]' --output text 2>/dev/null \
     | while read -r name running desired; do info "$name: $running/$desired tasks"; done
-  info "site: $(stack_output "$APP_STACK" SiteUrl) ($(stack_output "$APP_STACK" Mode) mode)"
+  info "site: $(stack_output "$APP_STACK" SiteUrl)"
   # Each task ~\$0.012 + \$0.005 for its public IP; the load balancer ~\$0.03 incl. its 2 IPs.
   # CloudFront and Secrets Manager are cents per day at this traffic.
   tasks="$(aws ecs describe-services --cluster motormate --services backend frontend \

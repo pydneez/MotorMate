@@ -38,7 +38,7 @@ const SUBSCRIBE_FIELDS = { id: true, email: true, notifySubscriptionArn: true, n
 const emailKey = (email: string) => email.trim().toLowerCase();
 
 /**
- * Customer emails. SES is blocked in Learner Lab, so on AWS they go through an SNS topic
+ * Customer emails. SES is sandbox-only in our AWS account, so there they go through an SNS topic
  * (NOTIFY_TOPIC_ARN): every email address gets one subscription, filtered on that address,
  * which its owner confirms once from AWS's email; a message tagged with the address reaches
  * only that subscription. Keyed on the address (not the customer id), so a confirmed address

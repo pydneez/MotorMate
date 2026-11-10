@@ -1,11 +1,9 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   MotorMate app: load balancer, ECS Fargate services for the backend and frontend
-  containers, and the HTTPS front door (CloudFront in full mode, an API Gateway HTTP API in
-  Learner Lab). Deployed by infra/scripts/up.sh as stack "motormate-app"; the dev account
-  deletes it nightly (down.sh).
+  containers, and the HTTPS front door (CloudFront). Deployed by infra/scripts/up.sh as
+  stack "motormate-app".
 
-# Full mode (demo account):
 #   Browser ──HTTPS──▶ CloudFront (https://<id>.cloudfront.net)
 #                          │ /_next/static/* cached; everything else passed through,
 #                          │ with the secret X-Origin-Verify header added
@@ -17,19 +15,9 @@ Description: >-
 #   (Cloud Map private DNS), since the ALB only answers CloudFront.
 #   App secrets come from Secrets Manager (motormate/app-…), not environment variables.
 #
-# Learner Lab mode (dev account; CloudFront is denied there):
-#   Browser ──HTTPS──▶ API Gateway (https://<id>.execute-api.<region>.amazonaws.com)
-#                          │ every path, proxied
-#                          ▼
-#                    ALB :80 (from anywhere) ── same two routes as above
-#
-#   Both: EventBridge Scheduler (09:00, 18:30 Bangkok) ──▶ Lambda ──HTTPS──▶ POST /v1/jobs/<job>
+#   EventBridge Scheduler (09:00, 18:30 Bangkok) ──▶ Lambda ──HTTPS──▶ POST /v1/jobs/<job>
 
 Parameters:
-  Mode:
-    Type: String
-    AllowedValues: [learner-lab, full]
-    Default: learner-lab
   BackendImage:
     Type: String
     Description: full ECR image URI with tag
@@ -53,23 +41,19 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ""
-    Description: full mode - header value CloudFront adds and the ALB requires
+    Description: header value CloudFront adds and the ALB requires
   CloudFrontPrefixListId:
     Type: String
     Default: ""
-    Description: full mode - id of com.amazonaws.global.cloudfront.origin-facing (up.sh looks it up)
+    Description: id of com.amazonaws.global.cloudfront.origin-facing (up.sh looks it up)
   BackendCount:
     Type: Number
     Default: 2
     Description: at least 2, so the API survives one container failing
   FrontendCount:
     Type: Number
-    Default: 1
-    Description: 2 in the demo account, so the site survives losing a container or an AZ
-
-Conditions:
-  Full: !Equals [!Ref Mode, full]
-  LearnerLab: !Not [!Condition Full]
+    Default: 2
+    Description: at least 2, so the site survives losing a container or an AZ
 
 Resources:
   # ── Load balancer ─────────────────────────────────────────────────────────────
@@ -82,22 +66,9 @@ Resources:
       Subnets: !Split [",", !ImportValue motormate-PublicSubnets]
       SecurityGroups: [!ImportValue motormate-AlbSecurityGroup]
 
-  # API Gateway has no fixed addresses, so Learner Lab opens port 80 to anywhere.
-  AlbIngressAnywhere:
-    Type: AWS::EC2::SecurityGroupIngress
-    Condition: LearnerLab
-    Properties:
-      GroupId: !ImportValue motormate-AlbSecurityGroup
-      Description: HTTP from anywhere (API Gateway)
-      IpProtocol: tcp
-      FromPort: 80
-      ToPort: 80
-      CidrIp: 0.0.0.0/0
-
-  # Full mode: only CloudFront's origin-facing addresses (an AWS-managed prefix list).
+  # Only CloudFront's origin-facing addresses (an AWS-managed prefix list).
   AlbIngressCloudFront:
     Type: AWS::EC2::SecurityGroupIngress
-    Condition: Full
     Properties:
       GroupId: !ImportValue motormate-AlbSecurityGroup
       Description: HTTP from CloudFront only
@@ -134,7 +105,7 @@ Resources:
       TargetGroupAttributes:
         - { Key: deregistration_delay.timeout_seconds, Value: "15" }
 
-  # Full mode: anything without CloudFront's secret header gets a 403 — even from an address
+  # Anything without CloudFront's secret header gets a 403 — even from an address
   # in CloudFront's range (someone else's distribution), the request never reaches the app.
   Listener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -142,32 +113,25 @@ Resources:
       LoadBalancerArn: !Ref LoadBalancer
       Protocol: HTTP
       Port: 80
-      DefaultActions: !If
-        - Full
-        - - Type: fixed-response
-            FixedResponseConfig: { StatusCode: "403", ContentType: text/plain, MessageBody: Forbidden }
-        - - { Type: forward, TargetGroupArn: !Ref FrontendTargetGroup }
+      DefaultActions:
+        - Type: fixed-response
+          FixedResponseConfig: { StatusCode: "403", ContentType: text/plain, MessageBody: Forbidden }
 
   BackendRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       ListenerArn: !Ref Listener
       Priority: 10
-      Conditions: !If
-        - Full
-        - - Field: path-pattern
-            PathPatternConfig: { Values: ["/v1", "/v1/*"] }
-          - Field: http-header
-            HttpHeaderConfig: { HttpHeaderName: X-Origin-Verify, Values: [!Ref OriginSecret] }
-        - - Field: path-pattern
-            PathPatternConfig: { Values: ["/v1", "/v1/*"] }
+      Conditions:
+        - Field: path-pattern
+          PathPatternConfig: { Values: ["/v1", "/v1/*"] }
+        - Field: http-header
+          HttpHeaderConfig: { HttpHeaderName: X-Origin-Verify, Values: [!Ref OriginSecret] }
       Actions:
         - { Type: forward, TargetGroupArn: !Ref BackendTargetGroup }
 
-  # Full mode only: in Learner Lab the frontend is the listener's default action.
   FrontendRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
-    Condition: Full
     Properties:
       ListenerArn: !Ref Listener
       Priority: 20
@@ -177,13 +141,12 @@ Resources:
       Actions:
         - { Type: forward, TargetGroupArn: !Ref FrontendTargetGroup }
 
-  # ── HTTPS front door: CloudFront (full mode) ─────────────────────────────────
+  # ── HTTPS front door: CloudFront ─────────────────────────────────────────────
   # The default *.cloudfront.net certificate gives HTTPS without a domain. Caching only for
   # Next.js's build assets (their names change with every build); pages and the API are
   # passed through with every header, cookie and query string (AWS-managed policies).
   Distribution:
     Type: AWS::CloudFront::Distribution
-    Condition: Full
     Properties:
       DistributionConfig:
         Comment: MotorMate
@@ -218,72 +181,16 @@ Resources:
             Compress: true
             CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
 
-  # ── HTTPS front door: API Gateway (Learner Lab) ──────────────────────────────
-  # CloudFront is denied in Learner Lab; an HTTP API's default endpoint has an AWS
-  # certificate. Two routes because "/" doesn't match "/{proxy+}".
-  HttpApi:
-    Type: AWS::ApiGatewayV2::Api
-    Condition: LearnerLab
-    Properties:
-      Name: motormate
-      ProtocolType: HTTP
-
-  ProxyIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Condition: LearnerLab
-    Properties:
-      ApiId: !Ref HttpApi
-      IntegrationType: HTTP_PROXY
-      IntegrationMethod: ANY
-      IntegrationUri: !Sub "http://${LoadBalancer.DNSName}/{proxy}"
-      PayloadFormatVersion: "1.0"
-
-  RootIntegration:
-    Type: AWS::ApiGatewayV2::Integration
-    Condition: LearnerLab
-    Properties:
-      ApiId: !Ref HttpApi
-      IntegrationType: HTTP_PROXY
-      IntegrationMethod: ANY
-      IntegrationUri: !Sub "http://${LoadBalancer.DNSName}/"
-      PayloadFormatVersion: "1.0"
-
-  ProxyRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Condition: LearnerLab
-    Properties:
-      ApiId: !Ref HttpApi
-      RouteKey: ANY /{proxy+}
-      Target: !Sub integrations/${ProxyIntegration}
-
-  RootRoute:
-    Type: AWS::ApiGatewayV2::Route
-    Condition: LearnerLab
-    Properties:
-      ApiId: !Ref HttpApi
-      RouteKey: ANY /
-      Target: !Sub integrations/${RootIntegration}
-
-  DefaultStage:
-    Type: AWS::ApiGatewayV2::Stage
-    Condition: LearnerLab
-    Properties:
-      ApiId: !Ref HttpApi
-      StageName: $default
-      AutoDeploy: true
-
-  # ── Private DNS for the frontend server's API calls (full mode) ──────────────
+  # ── Private DNS for the frontend server's API calls ──────────────────────────
   # backend.motormate.local resolves to the backend tasks' private IPs (one A record each).
   Namespace:
     Type: AWS::ServiceDiscovery::PrivateDnsNamespace
-    Condition: Full
     Properties:
       Name: motormate.local
       Vpc: !ImportValue motormate-VpcId
 
   BackendDiscovery:
     Type: AWS::ServiceDiscovery::Service
-    Condition: Full
     Properties:
       Name: backend
       NamespaceId: !Ref Namespace
@@ -292,13 +199,12 @@ Resources:
         DnsRecords: [{ Type: A, TTL: 10 }]
       HealthCheckCustomConfig: { FailureThreshold: 1 }
 
-  # ── App secrets (full mode) ──────────────────────────────────────────────────
+  # ── App secrets ──────────────────────────────────────────────────────────────
   # One JSON secret; the task definitions pick their keys (Secrets: valueFrom), so the
   # values never appear in the task definitions or the console. The name ends with this
   # stack's id: a deleted secret keeps its name for 7 days, which would block a re-deploy.
   AppSecret:
     Type: AWS::SecretsManager::Secret
-    Condition: Full
     Properties:
       Name: !Sub
         - motormate/app-${StackUuid}
@@ -309,8 +215,7 @@ Resources:
         - DbHost: !ImportValue motormate-DbHost
 
   # ── Containers (the ECS cluster itself is in motormate-base) ────────────────────
-  # Roles come from motormate-base: our own least-privilege roles in full mode, LabRole in
-  # Learner Lab.
+  # The least-privilege roles come from motormate-base.
   BackendTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -327,27 +232,16 @@ Resources:
           Essential: true
           PortMappings: [{ ContainerPort: 8080 }]
           Environment:
-            - !If
-              - Full
-              - !Ref AWS::NoValue
-              - Name: DATABASE_URL
-                Value: !Sub
-                  - "postgresql://motormate:${DbPassword}@${DbHost}:5432/motormate?schema=public"
-                  - DbHost: !ImportValue motormate-DbHost
             # RDS requires SSL; the image carries AWS's RDS certificate bundle.
             - { Name: DATABASE_SSL_CA, Value: /app/rds-global-bundle.pem }
-            - !If [Full, !Ref AWS::NoValue, { Name: JWT_SECRET, Value: !Ref JwtSecret }]
-            - !If [Full, !Ref AWS::NoValue, { Name: JOB_TOKEN, Value: !Ref JobToken }]
             - { Name: INVOICE_BUCKET, Value: !ImportValue motormate-InvoiceBucket }
             - Name: CORS_ORIGIN
-              Value: !If [Full, !Sub "https://${Distribution.DomainName}", !GetAtt HttpApi.ApiEndpoint]
+              Value: !Sub "https://${Distribution.DomainName}"
             - { Name: NOTIFY_TOPIC_ARN, Value: !ImportValue motormate-NotifyTopic }
-          Secrets: !If
-            - Full
-            - - { Name: DATABASE_URL, ValueFrom: !Sub "${AppSecret}:DATABASE_URL::" }
-              - { Name: JWT_SECRET, ValueFrom: !Sub "${AppSecret}:JWT_SECRET::" }
-              - { Name: JOB_TOKEN, ValueFrom: !Sub "${AppSecret}:JOB_TOKEN::" }
-            - !Ref AWS::NoValue
+          Secrets:
+            - { Name: DATABASE_URL, ValueFrom: !Sub "${AppSecret}:DATABASE_URL::" }
+            - { Name: JWT_SECRET, ValueFrom: !Sub "${AppSecret}:JWT_SECRET::" }
+            - { Name: JOB_TOKEN, ValueFrom: !Sub "${AppSecret}:JOB_TOKEN::" }
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -372,19 +266,13 @@ Resources:
           PortMappings: [{ ContainerPort: 3000 }]
           Environment:
             - Name: NEXTAUTH_URL
-              Value: !If [Full, !Sub "https://${Distribution.DomainName}", !GetAtt HttpApi.ApiEndpoint]
-            - !If [Full, !Ref AWS::NoValue, { Name: NEXTAUTH_SECRET, Value: !Ref NextAuthSecret }]
-            # The Next.js server's own API calls: straight to the backend tasks in full mode
-            # (the ALB only answers CloudFront), through the ALB in Learner Lab.
+              Value: !Sub "https://${Distribution.DomainName}"
+            # The Next.js server's own API calls go straight to the backend tasks, because
+            # the ALB only answers CloudFront.
             - Name: API_INTERNAL_URL
-              Value: !If
-                - Full
-                - http://backend.motormate.local:8080/v1
-                - !Sub "http://${LoadBalancer.DNSName}/v1"
-          Secrets: !If
-            - Full
-            - - { Name: NEXTAUTH_SECRET, ValueFrom: !Sub "${AppSecret}:NEXTAUTH_SECRET::" }
-            - !Ref AWS::NoValue
+              Value: http://backend.motormate.local:8080/v1
+          Secrets:
+            - { Name: NEXTAUTH_SECRET, ValueFrom: !Sub "${AppSecret}:NEXTAUTH_SECRET::" }
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -414,10 +302,8 @@ Resources:
           SecurityGroups: [!ImportValue motormate-BackendSecurityGroup]
       LoadBalancers:
         - { ContainerName: backend, ContainerPort: 8080, TargetGroupArn: !Ref BackendTargetGroup }
-      ServiceRegistries: !If
-        - Full
-        - [{ RegistryArn: !GetAtt BackendDiscovery.Arn }]
-        - !Ref AWS::NoValue
+      ServiceRegistries:
+        - { RegistryArn: !GetAtt BackendDiscovery.Arn }
 
   FrontendService:
     Type: AWS::ECS::Service
@@ -443,8 +329,8 @@ Resources:
 
   # ── Daily jobs ───────────────────────────────────────────────────────────────
   # The jobs live in the API (POST /v1/jobs/morning and /v1/jobs/close-day); this Lambda only
-  # calls them with the job token, and fails on an error status so Scheduler retries. In full
-  # mode it reads the token from Secrets Manager (once per container) instead of its env.
+  # calls them with the job token, and fails on an error status so Scheduler retries. It reads
+  # the token from Secrets Manager (once per container).
   JobsFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -456,16 +342,13 @@ Resources:
       Timeout: 60
       MemorySize: 128
       Environment:
-        Variables: !If
-          - Full
-          - JOBS_URL: !Sub "https://${Distribution.DomainName}/v1/jobs"
-            JOB_TOKEN_SECRET: !Ref AppSecret
-          - JOBS_URL: !Sub "${HttpApi.ApiEndpoint}/v1/jobs"
-            JOB_TOKEN: !Ref JobToken
+        Variables:
+          JOBS_URL: !Sub "https://${Distribution.DomainName}/v1/jobs"
+          JOB_TOKEN_SECRET: !Ref AppSecret
       Code:
         ZipFile: |
           const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client-secrets-manager");
-          let token = process.env.JOB_TOKEN;
+          let token;
           async function jobToken() {
             if (!token) {
               const secret = await new SecretsManagerClient({}).send(
@@ -521,14 +404,11 @@ Resources:
 Outputs:
   SiteUrl:
     Description: the HTTPS address of the whole site
-    Value: !If [Full, !Sub "https://${Distribution.DomainName}", !GetAtt HttpApi.ApiEndpoint]
+    Value: !Sub "https://${Distribution.DomainName}"
   LoadBalancerUrl:
-    Description: plain HTTP straight to the load balancer (answers 403 in full mode)
+    Description: plain HTTP straight to the load balancer (answers 403)
     Value: !Sub "http://${LoadBalancer.DNSName}"
-  Mode:
-    Value: !Ref Mode
   DistributionId:
-    Condition: Full
     Value: !Ref Distribution
   ClusterName:
     Value: !ImportValue motormate-Cluster
