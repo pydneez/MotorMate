@@ -77,11 +77,7 @@ Sign in with the seeded logins (password `password123`): `admin@`, `advisor@`,
 
 - It's a shared account: the scripts only touch `motormate-*` stacks, the `motormate` cluster
   and our own resources, so they can't affect other teams.
-- **Leave it running through the Nov 17 presentation** (≈ $0.13/hour with Multi-AZ and 4
-  containers). Don't run `down.sh` or `nuke.sh` before then: both delete the database.
-- After the course: `bash infra/scripts/nuke.sh --yes`. Only the person who ran `up.sh` can
-  empty the invoice bucket, because the bucket policy allows the backend and that deployer.
-  Someone else should run `up.sh` first.
+- After the course: `bash infra/scripts/nuke.sh --yes`. 
 
 ### Finding the site URL
 
@@ -164,6 +160,3 @@ CloudFront served static files from its cache from the second request on
 - **Daily jobs:** logs in CloudWatch → `/aws/lambda/motormate-daily-jobs`; run one by hand
   with `aws lambda invoke --function-name motormate-daily-jobs --cli-binary-format
   raw-in-base64-out --payload '{"job":"morning"}' out.json`.
-
-The stacks also have a Learner Lab mode for AWS Academy accounts (`up.sh --lab`); it's
-described in the comments at the top of `cloudformation/app.yml`.

@@ -1,8 +1,7 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >-
   MotorMate database: RDS PostgreSQL in the isolated subnets of motormate-base.
-  Deployed by infra/scripts/up.sh as stack "motormate-db"; the dev account deletes it
-  nightly (down.sh) and up.sh re-seeds it.
+  Deployed by infra/scripts/up.sh as stack "motormate-db".
 
 Parameters:
   DbPassword:
@@ -14,22 +13,14 @@ Parameters:
   MultiAZ:
     Type: String
     AllowedValues: ["false", "true"]
-    Default: "false"
-    Description: true in the demo account (primary + standby), false in dev
+    Default: "true"
+    Description: true for a primary + standby in two Availability Zones
   InstanceClass:
     Type: String
     Default: db.t3.micro
   MigrateImage:
     Type: String
     Description: full ECR URI of the migrate image (backend/Dockerfile --target migrate)
-  Mode:
-    Type: String
-    AllowedValues: [learner-lab, full]
-    Default: learner-lab
-    Description: full mode keeps DATABASE_URL in Secrets Manager (see app.yml)
-
-Conditions:
-  Full: !Equals [!Ref Mode, full]
 
 Resources:
   DbSubnetGroup:
@@ -63,12 +54,11 @@ Resources:
       DeletionProtection: false
       AutoMinorVersionUpgrade: true
 
-  # Full mode: the migration task's DATABASE_URL. The app stack has its own secret, but it
+  # The migration task's DATABASE_URL. The app stack has its own secret, but it
   # doesn't exist yet when the first migration runs. Named after this stack's id, because a
   # deleted secret keeps its name for 7 days.
   DbSecret:
     Type: AWS::SecretsManager::Secret
-    Condition: Full
     Properties:
       Name: !Sub
         - motormate/db-${StackUuid}
@@ -78,7 +68,7 @@ Resources:
 
   # `prisma migrate deploy` as a one-off task (infra/scripts/migrate.sh), run before each
   # rollout so new API containers never start against an old schema. Roles from
-  # motormate-base (LabRole in Learner Lab).
+  # motormate-base.
   MigrateTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
@@ -93,15 +83,8 @@ Resources:
         - Name: migrate
           Image: !Ref MigrateImage
           Essential: true
-          Environment: !If
-            - Full
-            - !Ref AWS::NoValue
-            - - Name: DATABASE_URL
-                Value: !Sub "postgresql://motormate:${DbPassword}@${Database.Endpoint.Address}:5432/motormate?schema=public"
-          Secrets: !If
-            - Full
-            - - { Name: DATABASE_URL, ValueFrom: !Sub "${DbSecret}:DATABASE_URL::" }
-            - !Ref AWS::NoValue
+          Secrets:
+            - { Name: DATABASE_URL, ValueFrom: !Sub "${DbSecret}:DATABASE_URL::" }
           LogConfiguration:
             LogDriver: awslogs
             Options:

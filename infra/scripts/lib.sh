@@ -1,8 +1,7 @@
 # Shared helpers for the MotorMate deploy scripts — sourced, not run.
 #
 # Every script runs from Git Bash (or WSL/macOS/Linux) with the AWS CLI configured for
-# your Learner Lab session; credentials expire with the session, so refresh
-# ~/.aws/credentials each time (AWS Details → AWS CLI: Show).
+# the demo account: export AWS_PROFILE=motormate-demo first.
 
 set -euo pipefail
 export MSYS_NO_PATHCONV=1           # Git Bash: don't rewrite "/motormate/..." into Windows paths
@@ -26,7 +25,7 @@ die() { printf '\033[31m✖ %s\033[0m\n' "$*" >&2; exit 1; }
 # Fails early with a clear message instead of a wall of AWS errors.
 require_aws() {
   ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null)" \
-    || die "AWS credentials missing or expired — start the lab and refresh ~/.aws/credentials"
+    || die "AWS credentials missing or expired — export AWS_PROFILE=motormate-demo and check your keys"
   export ACCOUNT_ID
 }
 
@@ -48,7 +47,7 @@ load_secrets() {
     echo "JOB_TOKEN=$(openssl rand -hex 32)" >> "$file"
     info "added JOB_TOKEN to infra/.secrets/$ACCOUNT_ID.env"
   fi
-  # Step 14: the header value CloudFront adds and the load balancer requires (full mode).
+  # Step 14: the header value CloudFront adds and the load balancer requires.
   if ! grep -q '^ORIGIN_SECRET=' "$file"; then
     echo "ORIGIN_SECRET=$(openssl rand -hex 32)" >> "$file"
     info "added ORIGIN_SECRET to infra/.secrets/$ACCOUNT_ID.env"
@@ -60,15 +59,6 @@ load_secrets() {
 stack_status() {
   aws cloudformation describe-stacks --stack-name "$1" --query 'Stacks[0].StackStatus' \
     --output text 2>/dev/null || echo "NONE"
-}
-
-# Learner Lab sessions are the "voclabs" role; anything else (e.g. the course's demo
-# account, an IAM user) can create roles and use CloudFront, so it gets "full".
-detect_mode() {
-  case "$(aws sts get-caller-identity --query Arn --output text)" in
-    *:assumed-role/voclabs/*) echo learner-lab ;;
-    *) echo full ;;
-  esac
 }
 
 # The caller as IAM sees it in a bucket policy: a user's ARN, or for an assumed-role session
@@ -103,7 +93,7 @@ deploy_stack() {
   local args=()
   wait_until_settled "$stack"
   [ $# -gt 0 ] && args=(--parameter-overrides "$@")
-  # CAPABILITY_IAM: the base stack creates our own roles in full mode.
+  # CAPABILITY_IAM: the base stack creates our own roles.
   (cd "$REPO_ROOT" && aws cloudformation deploy --stack-name "$stack" \
     --template-file "$CFN_DIR/$template" --no-fail-on-empty-changeset --capabilities CAPABILITY_IAM "${args[@]}") \
     || { show_stack_errors "$stack"; die "deploying $stack failed"; }
