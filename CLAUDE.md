@@ -545,7 +545,7 @@ wider smoke test, end-to-end hand-off; Jira 158–161), Step 11 — check-in jou
 inventory turnover / labour lines in Reports (162–164; PR #26) and Step 12 — Settings page:
 shop details + the price list, used by labour lines, bookings and Reports (136–140, 165;
 PR #27) and Step 13 — a required reason for list-price changes, My appointments width,
-scrolling tables (166–167; PR #28). Step 14 — the demo account in "full" mode: CloudFront
+scrolling tables (166–167; PR #28). Step 14 — the demo account: CloudFront
 with the ALB locked to it, least-privilege roles, Secrets Manager, Multi-AZ + a failover
 test (168–171; PR #29) and Step 15 — multi-shop "lite" + platform admin (174–177; PRs #30,
 #31). **The demo account is deployed** (Nov 7, main at `14c07ca`: smoke test 20/20, scripted
@@ -710,8 +710,7 @@ Values that must agree **across files**:
   no-permission task role, Lambda, Scheduler). **Secrets Manager** (`motormate/app-<stack id>`,
   `motormate/db-<stack id>` — named per stack because a deleted secret keeps its name for 7
   days). The frontend server reaches the API over Cloud Map private DNS
-  (`backend.motormate.local:8080`). The stacks also have a `Mode` switch for AWS Academy
-  accounts; that mode is described at the top of `infra/cloudformation/app.yml`.
+  (`backend.motormate.local:8080`).
 - Infrastructure lives in the repo as scripts/CloudFormation (no CDK).
 - Cost rules: Fargate tasks in public subnets with public IPs — **no NAT Gateway**;
   RDS `db.t3.micro`, Multi-AZ, with automated backups and encryption at rest.

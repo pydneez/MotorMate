@@ -6,7 +6,7 @@
 # Build argument (baked into the browser bundle):
 #   NEXT_PUBLIC_API_URL  defaults to /v1 — on AWS the site and the API share one address
 # Runtime environment (set by the ECS task definition; never baked into the image):
-#   NEXTAUTH_URL      the site's public address, e.g. https://xxxx.execute-api.us-east-1.amazonaws.com
+#   NEXTAUTH_URL      the site's public address, e.g. https://xxxx.cloudfront.net
 #   NEXTAUTH_SECRET   encrypts NextAuth's session cookie
 #   API_INTERNAL_URL  how the Next.js server reaches the backend, e.g. http://<load balancer>/v1
 

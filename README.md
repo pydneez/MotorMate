@@ -9,7 +9,7 @@ DES424 Cloud-based Application Development ·  SIIT, Thammasat University
 ## Tech stack
 
 Next.js + NextAuth.js (frontend) · NestJS + Prisma (backend) · PostgreSQL · AWS
-(ECS Fargate containers behind an ALB, API Gateway for HTTPS, RDS, S3, SNS email, EventBridge Scheduler + Lambda)
+(ECS Fargate containers behind an ALB, CloudFront for HTTPS, RDS, S3, SNS email, EventBridge Scheduler + Lambda)
 
 ## Prerequisites
 
@@ -142,9 +142,8 @@ Everyone runs their **own** local Postgres via Docker. To keep local data consis
 
 ## Deploying to AWS
 
-Each team member can run the whole app in their own AWS Academy Learner Lab account with
-`bash infra/scripts/up.sh`, and must tear it down with `bash infra/scripts/down.sh` before
-ending the lab session. Full guide: [infra/README.md](infra/README.md).
+The app runs on the course's demo AWS account and is deployed with
+`bash infra/scripts/up.sh`. Full guide: [infra/README.md](infra/README.md).
 
 ## Project structure
 
