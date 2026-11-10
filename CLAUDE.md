@@ -711,7 +711,7 @@ Values that must agree **across files**:
   `motormate/db-<stack id>` — named per stack because a deleted secret keeps its name for 7
   days). The frontend server reaches the API over Cloud Map private DNS
   (`backend.motormate.local:8080`). The stacks also have a `Mode` switch for AWS Academy
-  accounts; that mode is documented in `infra/README.md`, not here.
+  accounts; that mode is described at the top of `infra/cloudformation/app.yml`.
 - Infrastructure lives in the repo as scripts/CloudFormation (no CDK).
 - Cost rules: Fargate tasks in public subnets with public IPs — **no NAT Gateway**;
   RDS `db.t3.micro`, Multi-AZ, with automated backups and encryption at rest.
